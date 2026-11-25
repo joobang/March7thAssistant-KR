@@ -1121,7 +1121,7 @@ msgid "恢复默认图片"
 msgstr "기본 이미지 복구"
 
 msgid "三月七小助手"
-msgstr "March 7th 도우미"
+msgstr "삼칠이 도우미"
 
 #: app/content/settings/appearance.py:19
 msgid "选择图片"

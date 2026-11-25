@@ -2,7 +2,7 @@
   <h1 align="center">
     <img src="./assets/screenshot/March7th.png" width="200">
     <br/>
-    March7thAssistant
+    삼칠이 도우미
   </h1>
   <a href="https://trendshift.io/repositories/3892" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3892" alt="moesnow%2FMarch7thAssistant | Trendshift" style="width: 200px; height: 46px;" width="250" height="46"/></a>
 </div>
@@ -21,11 +21,13 @@
 
 <div align="center">
 
-[简体中文](./README.md) | [繁體中文](./README_TW.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | **한국어**
+[简体中文](https://github.com/moesnow/March7thAssistant) | [繁體中文](./README_TW.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | **한국어**
 
 **이 문서는 중국어 간체 원문을 기준으로 AI가 번역했습니다. 마지막 업데이트: 2026-09-24. 차이가 있으면 중국어 간체 원문을 우선해 주세요.**
 
-**게임 내 언어는 현재 중국어 간체만 지원합니다.**
+**March7thAssistant-KR**은 [원본 프로젝트](https://github.com/moesnow/March7thAssistant)의 비공식 한국어 현지화 포크입니다.
+
+**게임 화면 인식과 자동화는 중국어 간체 게임 화면을 기준으로 동작합니다.**
 
 빠르게 시작하려면: [사용 튜토리얼](https://m7a.top/docs/#/assets/docs/Tutorial_ko_KR)
 
@@ -55,22 +57,22 @@
 - 문제가 생기면 [Issue](https://github.com/moesnow/March7thAssistant/issues)에 남겨 주세요. 질문이나 토론은 [Discussions](https://github.com/moesnow/March7thAssistant/discussions)에서 진행해 주세요. 채팅방은 수시로 확인하지 않습니다.
 - [PR](https://github.com/moesnow/March7thAssistant/pulls) 환영합니다. 제출 전 [기여 가이드](CONTRIBUTING.md)를 읽어 주세요.
 
-## 다운로드 및 설치
+## 원본 배포판 다운로드
 
 [Releases](https://github.com/moesnow/March7thAssistant/releases/latest)에서 최신 버전을 내려받아 압축을 푼 뒤, 3월 7일 아이콘이 있는 `March7th Launcher.exe`를 더블 클릭해 GUI를 실행하세요.
 
 ## 소스 실행
 
-완전 초보라면 위의 배포판 사용을 권장합니다. 아래 내용은 건너뛰어도 됩니다.
+한국어 패치를 사용하려면 아래 명령으로 포크를 복제해 실행하세요.
 
-Python 3.12~3.14가 필요합니다.
+Python 3.12~3.14가 필요합니다. 실행 후 설정에서 UI 언어를 `한국어`로 선택할 수 있습니다.
 
 Windows에서 터미널로 실행할 경우 PowerShell, Windows Terminal, CMD를 관리자 권한으로 여는 것을 권장합니다. Windows 11 24H2 이상에서는 [Sudo for Windows](https://learn.microsoft.com/zh-cn/windows/advanced-settings/sudo/)도 사용할 수 있습니다.
 
 ```cmd
 # 설치 (가상 환경 사용 권장)
-git clone --recurse-submodules https://github.com/moesnow/March7thAssistant
-cd March7thAssistant
+git clone --recurse-submodules https://github.com/joobang/March7thAssistant-KR.git
+cd March7thAssistant-KR
 pip install -r requirements.txt
 python -m tools.i18n compile
 
@@ -91,9 +93,9 @@ python -m tools.i18n compile
 
 ```cmd
 # 설치 (uv 사용)
-git clone --recurse-submodules https://github.com/moesnow/March7thAssistant
-cd March7thAssistant
-uv sync
+git clone --recurse-submodules https://github.com/joobang/March7thAssistant-KR.git
+cd March7thAssistant-KR
+uv sync --group i18n
 uv run python -m tools.i18n compile
 
 # GUI 실행

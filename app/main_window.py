@@ -43,7 +43,7 @@ from app.tools.adb_service import display_connection
 from module.automation import auto
 from module.logger import log
 from module.game import get_game_controller
-from module.localization import tr
+from module.localization import get_current_language, tr
 from module.screen import screen
 from tasks.tool import stop_plot
 import base64
@@ -353,8 +353,8 @@ class MainWindow(FluentWindow):
         self.titleBar.hBoxLayout.setContentsMargins(14, 0, 0, 0)
         easter_egg_click = EasterEggClickFilter(self.titleBar.iconLabel)
         easter_egg_click.clicked.connect(self._on_logo_clicked)
-        set_application_icon(self, application_icon_path(), 'March7th Assistant')
-        self.setWindowTitle("March7th Assistant")
+        set_application_icon(self, application_icon_path(), self._assistant_name())
+        self.setWindowTitle(self._assistant_name())
         # 分离系统窗口标题与应用内标题栏文本
         self._refreshWindowTitleBar()
 
@@ -407,7 +407,11 @@ class MainWindow(FluentWindow):
         return f"{self._assistant_name()} {cfg.version}"
 
     def _assistant_name(self):
-        return 'Evernight Assistant' if self._evernight_active else 'March7th Assistant'
+        if self._evernight_active:
+            return 'Evernight Assistant'
+        if get_current_language() == 'ko_KR':
+            return tr('三月七小助手')
+        return 'March7th Assistant'
 
     def _refreshDesktopTwinBadge(self):
         """分身内的小助手在标题栏标出身份，透过分身画面也能和主桌面的小助手区分开。"""
@@ -699,7 +703,7 @@ class MainWindow(FluentWindow):
         patch_macos_tray()
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(self.windowIcon())
-        self.tray_icon.setToolTip('March7th Assistant')
+        self.tray_icon.setToolTip(self._assistant_name())
 
         # 创建托盘菜单
         tray_menu = SystemTrayMenu(parent=self)
@@ -1114,6 +1118,7 @@ class MainWindow(FluentWindow):
         self.accountsInterface.retranslateUi()
         for action, text in zip(self._tray_actions, [tr('显示主界面'), tr('完整运行'), tr('设置'), tr('退出')]):
             action.setText(text)
+        self.setWindowTitle(self._assistant_name())
         self._refreshDesktopTwinIndicators()
         self._refreshWindowTitleBar()
 

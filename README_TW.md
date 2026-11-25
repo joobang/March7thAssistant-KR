@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[简体中文](./README.md) | **繁體中文** | [English](./README_EN.md) | [日本語](./README_JA.md) | [한국어](./README_KR.md)
+[简体中文](https://github.com/moesnow/March7thAssistant) | **繁體中文** | [English](./README_EN.md) | [日本語](./README_JA.md) | [한국어](./README_KR.md)
 
 **此文件由 AI 根據簡體中文版翻譯。最後更新：2026-09-24。如有差異，請以簡體中文版為準。**
 

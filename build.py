@@ -68,14 +68,6 @@ def update_fight() -> None:
     log.info("[✓] Fight更新完成")
 
 
-def update_fps_unlocker() -> None:
-    """更新FPS解锁器"""
-    log.info("[*] 更新Genshin StarRail FPS解锁器...")
-    from tasks.base.genshin_starRail_fps_unlocker import Genshin_StarRail_fps_unlocker
-    Genshin_StarRail_fps_unlocker.update()
-    log.info("[✓] FPS解锁器更新完成")
-
-
 def download_browser() -> None:
     """下载集成浏览器"""
     log.info("[*] 下载集成浏览器...")
@@ -120,7 +112,6 @@ def execute_all_tasks(version: str = None, output_file: Path = None) -> None:
     init_ocr()
     update_universe()
     update_fight()
-    update_fps_unlocker()
     download_browser()
 
     if version and output_file:
@@ -141,7 +132,6 @@ def main():
   python build.py --task ocr                                  # 只初始化OCR
   python build.py --task universe                             # 只更新Universe
   python build.py --task fight                                # 只更新Fight
-  python build.py --task fps-unlocker                         # 只更新FPS解锁器
   python build.py --task browser                              # 只下载浏览器
   python build.py --task changelog -v v1.0.0 -o changelog.md  # 只生成日志
   python build.py --task all -v v1.0.0 -o changelog.md        # 执行全部任务
@@ -153,7 +143,7 @@ def main():
         "--task",
         "-t",
         type=str,
-        choices=["ocr", "universe", "fight", "fps-unlocker", "browser", "changelog", "all"],
+        choices=["ocr", "universe", "fight", "browser", "changelog", "all"],
         help="要执行的任务(默认: all)"
     )
     parser.add_argument(
@@ -193,8 +183,6 @@ def main():
             update_universe()
         elif task == "fight":
             update_fight()
-        elif task == "fps-unlocker":
-            update_fps_unlocker()
         elif task == "browser":
             download_browser()
         elif task == "changelog":

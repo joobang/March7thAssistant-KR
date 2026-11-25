@@ -54,11 +54,11 @@ def test_grid_packs_all_visibility_combinations(toolbox):
 
 
 @pytest.mark.parametrize("backend,profile,error,visible", [
-    ("local", "pc_1080", None, "11111111"),
-    ("cloud", "pc_1080", None, "11111111"),
-    ("adb", "touch_720", None, "00011001"),
-    ("cloud", "touch_720", None, "11110001"),
-    ("local", "pc_1080", "invalid", "01111111"),
+    ("local", "pc_1080", None, "111111"),
+    ("cloud", "pc_1080", None, "111111"),
+    ("adb", "touch_720", None, "011001"),
+    ("cloud", "touch_720", None, "110001"),
+    ("local", "pc_1080", "invalid", "011111"),
 ])
 def test_backend_cards_and_groups(toolbox, backend, profile, error, visible):
     page, conn = toolbox
@@ -164,39 +164,9 @@ def test_windows_tools_stay_disabled_after_hosting_on_other_platforms(qtbot, mon
     qtbot.addWidget(page)
     page.setDesktopTwinHosting(True)
     page.setDesktopTwinHosting(False)
-    assert all(not c.isEnabled() for c in (page.automaticPlotCard, page.unlockfpsCard,
-                                            page.cloudTouchCard, page.desktopTwinCard))
+    assert all(not c.isEnabled() for c in (page.automaticPlotCard, page.desktopTwinCard))
     page.toggleAutoPlot()
     tools.tool.start.assert_not_called()
-
-
-@pytest.mark.skipif(tools.sys.platform != "win32", reason="触屏模式工具只在 Windows 上启用")
-def test_touch_mode_confirms_all_three_steps_before_starting(toolbox, monkeypatch, tmp_path):
-    from app.common.mascot import Mascot
-    from tests.test_app.mascot_assertions import assert_pose
-    page, _ = toolbox
-    config = SimpleNamespace(genshin_starRail_fps_unlocker_path=str(tmp_path / "tools"),
-                             game_path=str(tmp_path / "game"), genshin_starRail_fps_unlocker_allow=False,
-                             set_value=Mock())
-    (tmp_path / "game").touch()
-    monkeypatch.setattr(tools, "cfg", config)
-    start = Mock()
-    monkeypatch.setattr(tools, "start_task", start)
-    for accepted in (False, True):
-        boxes = []
-        def confirm(box):
-            boxes.append(box.titleLabel.text())
-            assert_pose(box.mascotLabel.pixmap(), Mascot.SERIOUS)
-            return len(boxes) < 3 or accepted
-        monkeypatch.setattr(MessageBox, "exec", confirm)
-        page.cloudTouchCard.button.click()
-        assert len(set(boxes)) == 3
-        if accepted:
-            config.set_value.assert_called_once_with("genshin_starRail_fps_unlocker_allow", True)
-            start.assert_called_once_with("mobileui_update")
-        else:
-            config.set_value.assert_not_called()
-            start.assert_not_called()
 
 
 @pytest.mark.skipif(tools.sys.platform != "win32", reason="自动对话在 Windows 上运行")

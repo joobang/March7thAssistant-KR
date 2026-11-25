@@ -65,7 +65,7 @@ start_game_timeout: 10 # 启动游戏超时时间（分）。
 update_game_timeout: 12 # 更新游戏超时时间（时）。
 
 # 平台设置（开发中，普通用户不要修改）
-ui_profile: pc_1080 # UI 形态：pc_1080、touch_720。本地触屏开发需先在工具箱完成触屏模式的风险确认。
+ui_profile: pc_1080 # UI 形态：pc_1080、touch_720。touch_720 仅用于 Android ADB。
 control_backend: null # 设备后端：local、cloud、adb。留空时沿用 cloud_game_enable（含环境变量覆盖），显式设置优先。桌面分身固定使用 local。
 
 # 桌面 ADB 后端仅支持 touch_720。路径留空时自动查找。
@@ -301,9 +301,6 @@ fight_reward_enable: false # 是否启用「特殊物品领取」。true 开启�
 fight_main_map: "0" # 优先星球 {"空间站": "1", "雅利洛": "2", "仙舟": "3", "匹诺康尼": "4", "翁法罗斯": "5"}, "不配置": "0"
 fight_map_version: 不配置 # 地图版本，可选值：不配置、default（默认，疾跑）、HuangQuan（黄泉专用）或 reward（获得特殊物品）
 
-# Genshin_StarRail_fps_unlocker 配置
-genshin_starRail_fps_unlocker_allow: false
-genshin_starRail_fps_unlocker_path: .\3rdparty\Genshin_StarRail_fps_unlocker
 
 # 忘却之庭配置
 forgottenhall_enable: false # 是否启用混沌回忆功能。true 开启，false 关闭。

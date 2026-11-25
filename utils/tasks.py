@@ -35,7 +35,6 @@ AVAILABLE_TASKS = {
     "fight_gui": "锄大地原生界面",
     "universe_update": "模拟宇宙更新",
     "fight_update": "锄大地更新",
-    "mobileui_update": "触屏模式更新",
     "game": "启动游戏",
     "notify": "测试消息推送",
     "redemption": "兑换码",
@@ -65,9 +64,7 @@ def task_is_supported(task_id, config=None):
     if backend == "adb":
         return task_id in TOUCH_ROUTINE_TASKS
     if get_ui_profile(config).name == "touch_720":
-        if backend == "cloud":
-            return task_id == "mobileui_update"
-        return task_id in TOUCH_ROUTINE_TASKS or task_id == "mobileui_update"
+        return False
     return task_id in AVAILABLE_TASKS or task_id == "workflow"
 
 

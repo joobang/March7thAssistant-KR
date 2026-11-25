@@ -16,7 +16,6 @@ IGNORED = HOST_TASKS | {
     "game_pre_download",
     "universe_update",
     "fight_update",
-    "mobileui_update",
     "universe_gui",
     "fight_gui",
 }

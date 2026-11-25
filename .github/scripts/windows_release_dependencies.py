@@ -17,13 +17,11 @@ SEVEN_ZIP = ROOT / "assets/binary/7za.exe"
 SOURCES = {
     "moesnow/Auto_Simulated_Universe": ("Auto_Simulated_Universe.zip", "Auto_Simulated_Universe"),
     "linruowuyin/Fhoe-Rail": ("Fhoe-Rail.zip", "Fhoe-Rail"),
-    "winTEuser/Genshin_StarRail_fps_unlocker": ("Unlocker*.exe", "Genshin_StarRail_fps_unlocker"),
 }
 REQUIRED_EXECUTABLES = (
     "Auto_Simulated_Universe/diver.exe",
     "Auto_Simulated_Universe/simul.exe",
     "Fhoe-Rail/Fhoe-Rail.exe",
-    "Genshin_StarRail_fps_unlocker/unlocker.exe",
 )
 
 
@@ -92,12 +90,7 @@ def stage(manifest):
         payload.mkdir()
         for repo, (_, folder) in SOURCES.items():
             archive = download(repo, releases[repo], scratch)
-            if archive.suffix == ".zip":
-                subprocess.run([str(SEVEN_ZIP), "x", "-y", str(archive), f"-o{payload}"], check=True)
-            else:
-                target = payload / folder / "unlocker.exe"
-                target.parent.mkdir()
-                shutil.copyfile(archive, target)
+            subprocess.run([str(SEVEN_ZIP), "x", "-y", str(archive), f"-o{payload}"], check=True)
         require_files(payload / path for path in REQUIRED_EXECUTABLES)
         for _, folder in SOURCES.values():
             shutil.copytree(payload / folder, ROOT / "3rdparty" / folder, dirs_exist_ok=True)

@@ -1,5 +1,5 @@
 import ast
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from pathlib import Path
 from types import MethodType, SimpleNamespace
 from unittest.mock import ANY, Mock, call
@@ -507,34 +507,17 @@ def test_direct_start_waits_for_the_reused_process_window(startup, monkeypatch, 
     game.auto.press_mouse.assert_not_called()
 
 
-@pytest.mark.parametrize("background", [False, True])
-def test_touch_local_start_uses_clicks_and_native_resolution(startup, monkeypatch, background):
+def test_removed_local_touch_start_does_not_launch_game(startup, monkeypatch):
     game, controller, cfg = startup
     cfg.ui_profile = "touch_720"
-    controller.launch_touch_game.return_value = nullcontext()
-    controller.get_resolution.return_value = (1280, 720)
-    controller.switch_to_game.return_value = True
-    monkeypatch.setattr(game, "get_game_controller", Mock(return_value=controller))
-    monkeypatch.setattr(game, "screen", Mock())
-    game.screen.get_current_screen.side_effect = [False, True]
-    game.wait_until.side_effect = lambda condition, timeout: condition() or condition()
-    game.auto.input_handler = Mock(is_background=background)
-    game.auto.click_element = Mock()
+    cfg.genshin_starRail_fps_unlocker_allow = True
+    get_controller = Mock(return_value=controller)
+    monkeypatch.setattr(game, "get_game_controller", get_controller)
 
-    game.start_game()
-
-    game.get_game_controller.assert_called_once_with("local")
-    controller.launch_touch_game.assert_called_once_with((1280, 720))
-    if background:
-        controller.switch_to_game.assert_not_called()
-        game.auto.input_handler.wait_for_window.assert_called_once_with(game.WINDOW_WAIT_SECONDS)
-    else:
-        controller.switch_to_game.assert_called_once_with()
-        game.auto.input_handler.wait_for_window.assert_not_called()
-    assert game.screen.get_current_screen.call_args_list == [call(autotry=False), call(autotry=False)]
-    assert game.auto.click_element.call_args.args[:3] == ("./assets/touch_720/images/screen/click_enter.png", "image", 0.9)
-    game.auto.press_mouse.assert_not_called()
-    game.StarRailController.assert_not_called()
+    with pytest.raises(RuntimeError, match="本地触屏模式已移除"):
+        game.start_game()
+    get_controller.assert_not_called()
+    controller.start_game_process.assert_not_called()
 
 
 def test_explicit_cloud_start_skips_local_resolution(startup, monkeypatch):

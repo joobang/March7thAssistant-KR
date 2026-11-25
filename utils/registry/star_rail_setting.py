@@ -63,10 +63,6 @@ _KEY_NAMES_BY_CODE = {
 }
 
 
-class MissingFPSSettingError(ValueError):
-    """游戏未使用自定义图像质量，没有可修改的帧率配置。"""
-
-
 def registry_path_for_game(game_path: str) -> Optional[str]:
     """仅根据当前所选游戏的 Unity 元数据识别渠道，不猜测。"""
     if not game_path or Path(game_path).name.lower() != "starrail.exe":
@@ -265,46 +261,6 @@ def set_game_resolution(width: int, height: int, is_fullscreen: bool, *, registr
     if registry_path is None:
         registry_path = get_registry_key_path()
     write_registry_value(winreg.HKEY_CURRENT_USER, registry_path, resolution_value_name, data, winreg.REG_BINARY)
-
-
-def get_game_fps() -> Optional[int]:
-    """
-    Return the game FPS settings from the registry value.
-
-    This function does not take any parameters.
-    """
-    value = read_registry_value(winreg.HKEY_CURRENT_USER, get_registry_key_path(), graphics_value_name)
-    if value:
-        data_dict = json.loads(value.decode('utf-8').strip('\x00'))
-
-        # Validate data format
-        if 'FPS' in data_dict:
-            if isinstance(data_dict['FPS'], int):
-                return data_dict['FPS']
-            else:
-                raise ValueError("Registry data is invalid: FPS must be of type int.")
-        else:
-            return 60
-
-    return None
-
-
-def set_game_fps(fps: int) -> None:
-    """
-    Set the FPS of the game.
-
-    Parameters:
-    - fps
-    """
-    value = read_registry_value(winreg.HKEY_CURRENT_USER, get_registry_key_path(), graphics_value_name)
-    if not value:
-        raise MissingFPSSettingError("请将游戏图像质量修改为自定义后重试")
-    data_dict = json.loads(value.decode('utf-8').strip('\x00'))
-    if 'FPS' not in data_dict:
-        raise MissingFPSSettingError("请将游戏图像质量修改为自定义后重试")
-    data_dict['FPS'] = fps
-    data = (json.dumps(data_dict) + '\x00').encode('utf-8')
-    write_registry_value(winreg.HKEY_CURRENT_USER, get_registry_key_path(), graphics_value_name, data, winreg.REG_BINARY)
 
 
 def read_registry_value(key, sub_key, value_name):

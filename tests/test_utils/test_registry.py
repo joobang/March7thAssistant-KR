@@ -119,41 +119,6 @@ class TestStarRailSettingResolution:
                 get_game_resolution()
 
 
-class TestStarRailSettingFps:
-    @pytest.fixture(autouse=True)
-    def registry_path(self):
-        with patch("utils.registry.star_rail_setting.get_registry_key_path", return_value="test-path"):
-            yield
-
-    def test_set_fps_preserves_other_settings(self):
-        from utils.registry.star_rail_setting import set_game_fps
-        data = b'{"FPS": 60, "Quality": 3}\x00'
-        with patch("utils.registry.star_rail_setting.read_registry_value", return_value=data), \
-                patch("utils.registry.star_rail_setting.write_registry_value") as write:
-            set_game_fps(120)
-        assert json.loads(write.call_args.args[3].decode().strip('\x00')) == {"FPS": 120, "Quality": 3}
-
-    def test_get_fps_valid(self):
-        from utils.registry.star_rail_setting import get_game_fps
-        data = json.dumps({"FPS": 120}) + "\x00"
-        with patch("utils.registry.star_rail_setting.read_registry_value", return_value=data.encode('utf-8')):
-            result = get_game_fps()
-            assert result == 120
-
-    def test_get_fps_default_60(self):
-        from utils.registry.star_rail_setting import get_game_fps
-        data = json.dumps({"other": "data"}) + "\x00"
-        with patch("utils.registry.star_rail_setting.read_registry_value", return_value=data.encode('utf-8')):
-            result = get_game_fps()
-            assert result == 60
-
-    def test_get_fps_none(self):
-        from utils.registry.star_rail_setting import get_game_fps
-        with patch("utils.registry.star_rail_setting.read_registry_value", return_value=None):
-            result = get_game_fps()
-            assert result is None
-
-
 class TestStarRailSettingSetters:
     def test_set_auto_battle(self):
         from utils.registry.star_rail_setting import set_auto_battle_open_setting

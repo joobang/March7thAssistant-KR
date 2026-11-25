@@ -182,31 +182,6 @@ def ensure_game_ready():
     return True
 
 
-def _start_local_touch_game():
-    controller = get_game_controller("local")
-    profile = get_ui_profile(cfg)
-
-    def touch_game_ready():
-        pause_ctl.checkpoint()
-        if controller.get_resolution() != profile.resolution:
-            return False
-        if screen.get_current_screen(autotry=False):
-            return True
-        auto.click_element("./assets/touch_720/images/screen/click_enter.png", "image", 0.9,
-                           crop=(840 / 1920, 930 / 1080, 240 / 1920, 130 / 1080))
-        return False
-
-    with controller.launch_touch_game(profile.resolution):
-        if getattr(auto.input_handler, "is_background", False) is True:
-            auto.input_handler.wait_for_window(WINDOW_WAIT_SECONDS)
-        elif not controller.switch_to_game():
-            raise RuntimeError(tr("切换到游戏窗口失败"))
-        if controller.get_resolution() != profile.resolution:
-            raise RuntimeError(tr("请退出当前游戏，再启动 1280×720 触屏模式"))
-        if not wait_until(touch_game_ready, cfg.start_game_timeout * 60):
-            raise TimeoutError(tr("未能进入触屏主界面，请检查游戏登录状态"))
-
-
 def start_game(headless=None, *, optimize_graphics=True, screen_ready=None, preserve_cloud_session=False):
     """启动或接管游戏。可选的任务就绪回调补充只读画面识别。"""
     backend = get_control_backend(cfg)
@@ -236,8 +211,7 @@ def start_game(headless=None, *, optimize_graphics=True, screen_ready=None, pres
         wait_for_adb_game(controller, timeout, recover=recover)
         return
     if backend == "local" and get_ui_profile(cfg).name == "touch_720":
-        _start_local_touch_game()
-        return
+        raise RuntimeError("本地触屏模式已移除，请使用 pc_1080 或 Android ADB。")
 
     MAX_RETRY = 3
     login_attempts = 0

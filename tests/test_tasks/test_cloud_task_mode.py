@@ -49,7 +49,7 @@ def runner():
              "screen_test", "character_export", "challenge", "Redemption", "adb_check",
              "first_run", "pause_ctl", "ensure_exclusive_run", "version",
              "recover_temporary_graphics", "restore_temporary_graphics", "log", "publish_status", "run_session", "notif",
-             "task_power_request", "app_update_task", "Genshin_StarRail_fps_unlocker",
+             "task_power_request", "app_update_task",
              "NotificationLevel", "pause_always")
     scope = {name: MagicMock() for name in names}
     scope["cfg"].control_backend = None
@@ -83,7 +83,7 @@ def runner():
 def test_overview_retry_dispatches_only_requested_full_run_step(runner, monkeypatch, touch):
     from tasks.touch import rewards
 
-    runner.cfg.control_backend = "local"
+    runner.cfg.control_backend = "adb" if touch else "local"
     runner.cfg.ui_profile = "touch_720" if touch else "pc_1080"
     runner.run_session.record = {"retry_step": "echo"}
     touch_routine = MagicMock(return_value=True)
@@ -103,7 +103,7 @@ def test_overview_retry_dispatches_only_requested_full_run_step(runner, monkeypa
 ])
 def test_task_page_dispatch_keeps_routine_guard_and_scope(runner, monkeypatch, page, touch, allowed):
     from tasks import page_actions
-    runner.cfg.control_backend = "local"
+    runner.cfg.control_backend = "adb" if touch else "local"
     runner.cfg.ui_profile = "touch_720" if touch else "pc_1080"
     runner.run_session.record = {"page_task": page}
     dispatch = MagicMock(return_value=True)
@@ -140,7 +140,6 @@ PC_TASK_HANDLERS = {
     "fight_gui": "Fight.gui",
     "universe_update": "Universe.update",
     "fight_update": "Fight.update",
-    "mobileui_update": "Genshin_StarRail_fps_unlocker.update",
     "game": "game.start",
     "notify": "notif.notify",
     "redemption": "Redemption.start",
@@ -160,7 +159,7 @@ def test_pc_command_dispatches_to_expected_handler(runner, action):
         handler.side_effect = RunStopRequested
         with pytest.raises(RunStopRequested):
             runner.main(action=action)
-    elif action in ("main", "universe_gui", "fight_gui", "universe_update", "fight_update", "mobileui_update", "notify"):
+    elif action in ("main", "universe_gui", "fight_gui", "universe_update", "fight_update", "notify"):
         runner.game.stop.side_effect = SystemExit(EXIT_OK)
         with pytest.raises(SystemExit) as completed:
             runner.main(action=action)
@@ -1368,7 +1367,7 @@ def test_pc_daily_uses_desktop_daily_entry(runner, backend):
     runner.Daily.run_standalone.assert_called_once_with()
 
 
-@pytest.mark.parametrize("backend", ["local", "adb"])
+@pytest.mark.parametrize("backend", ["adb"])
 @pytest.mark.parametrize(("action", "target"), [
     ("daily", "tasks.touch.rewards.run_daily_training"),
     ("routine", "tasks.touch.rewards.routine"),
@@ -1397,7 +1396,7 @@ def test_touch_subtasks_run_without_pc_tasks(runner, monkeypatch, backend, actio
 
 @pytest.mark.parametrize("action, workflow, backend", [
     *[(action, None, "local") for action in sorted(
-        AVAILABLE_TASKS.keys() - {"main", "daily", "routine", "power", "screen_test", "game", "mobileui_update", "app_update", "notify"}
+        AVAILABLE_TASKS.keys() - {"main", "daily", "routine", "power", "screen_test", "game", "app_update", "notify"}
     )],
     (None, "测试流程", "local"),
     ("daily", None, "cloud"),
@@ -2942,3 +2941,12 @@ def test_currency_wars_stop_during_cdp_drag_releases_at_the_current_position(
     assert dispatched == [("mouseMoved", 750, 400, False), ("mousePressed", 750, 400, False),
                           ("mouseReleased", 750, 400, True)]
     assert state.completed == 0 and state.later_steps == []
+
+
+@pytest.mark.parametrize("action", ["main", "daily", "game", "mobileui_update"])
+def test_removed_local_touch_tasks_are_blocked(runner, action):
+    runner.cfg.control_backend = "local"
+    runner.cfg.ui_profile = "touch_720"
+    runner.cfg.genshin_starRail_fps_unlocker_allow = True
+    assert runner.main(action=action) is False
+    runner.game.start.assert_not_called()

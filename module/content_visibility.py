@@ -64,7 +64,7 @@ class Visibility:
         if key == "autoplot":
             return self.backend != "adb" and not self.invalid
         if key in ("unlock_fps", "cloud_touch"):
-            return self.backend != "adb"
+            return False
         if key in ("redemption", "character_export"):
             return not self.touch and self.backend != "adb"
         if key == "screen_test":

@@ -530,7 +530,7 @@ def test_config_reload_refreshes_overview_and_tools_for_new_backend(window, monk
     assert window.settingInterface.pages["run_mode"].chooser.cards["adb"].isSelected()
     qtbot.waitUntil(lambda: [s.id for s in page._snapshot.shortcuts] == ["routine", "power"])
     assert [button.text() for button in page.shortcutsCard._buttons] == [module.tr("日常"), module.tr("清体力")]
-    assert window.toolsInterface.cloudTouchCard.isHidden()
+    assert not hasattr(window.toolsInterface, "cloudTouchCard")
     assert not window.toolsInterface.gameScreenshotCard.isHidden()
     assert runtime_calls.method_calls == [call.bind_input(), call.reload_screen()]
     monkeypatch.setattr(tools, "tr", lambda text: "Choose local image" if text == "手动选择图片" else text)

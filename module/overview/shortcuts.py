@@ -38,7 +38,6 @@ ACTION_ICONS = {
     "character_export": "UiIcon.EXPORT", "game": "FIF.PLAY", "screen_test": "UiIcon.COMPASS",
     "autoplot": "UiIcon.PEOPLE_CHAT", "screenshot": "FIF.CAMERA", "notify": "UiIcon.SEND",
     "app_update": "UiIcon.REFRESH", "game_update": "UiIcon.REFRESH", "game_pre_download": "UiIcon.CLOUD_DOWNLOAD",
-    "mobileui_update": "UiIcon.REFRESH",
 }
 ICONS = tuple(sorted(set(ACTION_ICONS.values()) | {"UiIcon.TOOLBOX", "UiIcon.GIFT", "UiIcon.LIST", "UiIcon.STAR"}))
 

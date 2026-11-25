@@ -157,9 +157,8 @@ jobs:
         run: |
           $asu = (gh api repos/moesnow/Auto_Simulated_Universe/releases/latest --jq '.tag_name' 2>$null)
           $fhoe = (gh api repos/linruowuyin/Fhoe-Rail/releases/latest --jq '.tag_name' 2>$null)
-          $fps = (gh api repos/winTEuser/Genshin_StarRail_fps_unlocker/releases/latest --jq '.tag_name' 2>$null)
           $buildHash = "${{ hashFiles('build.py', 'module/game/cloud.py') }}"
-          $hash = "${asu}-${fhoe}-${fps}-${buildHash}"
+          $hash = "${asu}-${fhoe}-${buildHash}"
           echo "hash=$hash" >> $env:GITHUB_OUTPUT
           Write-Host "3rdparty cache key: $hash"
         env:

@@ -1,7 +1,6 @@
 import json
 import sys
 from importlib import import_module
-from importlib.util import module_from_spec, spec_from_file_location
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -285,126 +284,6 @@ def test_touch_screen_graph_has_no_pc_fallback(monkeypatch, tmp_path):
     touch_graph.parent.mkdir(parents=True)
     touch_graph.write_text('[{"id":"main","name":"Touch","image_path":"touch.png","actions":[]}]', encoding="utf-8")
     assert screen.get_name("main") == "Touch"
-
-
-@pytest.fixture
-def touch_launch(monkeypatch, tmp_path):
-    from module.game import local
-
-    game = tmp_path / "StarRail.exe"
-    game.touch()
-    metadata = tmp_path / "StarRail_Data" / "app.info"
-    metadata.parent.mkdir()
-    unlocker = tmp_path / "unlocker.exe"
-    unlocker.touch()
-    original = b'{"Width": 1920, "Height": 1080, "isFullScreen": true, "extra": 7}\x00'
-    winreg = Mock(HKEY_CURRENT_USER=1, REG_BINARY=3)
-    winreg.QueryValueEx.return_value = (original, winreg.REG_BINARY)
-    monkeypatch.setitem(sys.modules, "winreg", winreg)
-    spec = spec_from_file_location(
-        "utils.registry.star_rail_setting",
-        Path(__file__).resolve().parents[2] / "utils/registry/star_rail_setting.py",
-    )
-    registry = module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, spec.name, registry)
-    spec.loader.exec_module(registry)
-    monkeypatch.setattr(local.subprocess, "CREATE_NEW_CONSOLE", 16, raising=False)
-    spawn = Mock()
-    monkeypatch.setattr(local.subprocess, "Popen", spawn)
-    checkpoint = Mock()
-    monkeypatch.setattr(local.pause_ctl, "checkpoint", checkpoint)
-
-    config = SimpleNamespace(
-        game_path=str(game), game_process_name="StarRail", game_title_name="Star Rail",
-        script_path=None, genshin_starRail_fps_unlocker_path=str(tmp_path),
-        get_value=Mock(side_effect=lambda key, default=None: {
-            "genshin_starRail_fps_unlocker_allow": True,
-        }.get(key, default)),
-    )
-    controller = local.LocalGameController(config)
-    monkeypatch.setattr(controller, "is_game_running", lambda: False)
-    monkeypatch.setattr(controller, "get_resolution", Mock(return_value=(1280, 720)))
-    return SimpleNamespace(
-        controller=controller, metadata=metadata, unlocker=unlocker, registry=registry,
-        winreg=winreg, original=original, spawn=spawn, checkpoint=checkpoint,
-    )
-
-
-@pytest.mark.parametrize(("metadata", "region"), [
-    ("miHoYo\n崩坏：星穹铁道\n", "cn"),
-    ("Cognosphere\nStar Rail\n", "oversea"),
-])
-@pytest.mark.parametrize("failure", [None, "spawn", "enter", "stop"])
-def test_touch_launch_restores_original_resolution(touch_launch, tmp_path, metadata, region, failure):
-    from utils.pause import RunStopRequested
-
-    launch = touch_launch
-    launch.metadata.write_text(metadata, encoding="utf-8-sig")
-    path = getattr(launch.registry, f"registry_key_path_{region}")
-    winreg = launch.winreg
-    if failure == "spawn":
-        launch.spawn.side_effect = OSError("spawn")
-    if failure == "stop":
-        launch.controller.get_resolution.return_value = None
-        launch.checkpoint.side_effect = [None, RunStopRequested()]
-
-    def start():
-        with launch.controller.launch_touch_game((1280, 720)):
-            assert winreg.SetValueEx.call_count == 1
-            launch.metadata.unlink()
-            if failure == "enter":
-                raise OSError("enter")
-
-    if failure == "stop":
-        with pytest.raises(RunStopRequested):
-            start()
-    elif failure:
-        with pytest.raises(OSError, match=failure):
-            start()
-    else:
-        start()
-    launch.spawn.assert_called_once_with([str(launch.unlocker), "-HKSR", "-EnableMobileUI"],
-                                         cwd=tmp_path, creationflags=16)
-    winreg.OpenKey.assert_called_once_with(winreg.HKEY_CURRENT_USER, path)
-    assert winreg.CreateKey.call_args_list == [call(winreg.HKEY_CURRENT_USER, path)] * 2
-    temporary, restored = winreg.SetValueEx.call_args_list
-    assert temporary.args[:4] == (winreg.CreateKey.return_value, launch.registry.resolution_value_name, 0, winreg.REG_BINARY)
-    assert json.loads(temporary.args[4].rstrip(b"\x00")) == {"width": 1280, "height": 720, "isFullScreen": False}
-    assert restored.args == (*temporary.args[:4], launch.original)
-
-
-@pytest.mark.parametrize("missing", ["region", "key", "value"])
-def test_touch_launch_requires_original_resolution(touch_launch, tmp_path, missing):
-    launch = touch_launch
-    if missing != "region":
-        launch.metadata.write_text("miHoYo\n崩坏：星穹铁道\n", encoding="utf-8")
-    if missing == "key":
-        launch.winreg.OpenKey.side_effect = FileNotFoundError()
-    elif missing == "value":
-        launch.winreg.QueryValueEx.side_effect = FileNotFoundError()
-    message = "游戏路径" if missing == "region" else "未找到原始游戏分辨率"
-
-    with pytest.raises(RuntimeError, match=message), launch.controller.launch_touch_game((1280, 720)):
-        pytest.fail("无法备份分辨率时不应启动触屏模式")
-
-    if missing == "region":
-        launch.winreg.OpenKey.assert_not_called()
-    launch.winreg.CreateKey.assert_not_called()
-    launch.winreg.SetValueEx.assert_not_called()
-    launch.spawn.assert_not_called()
-    assert not (tmp_path / "hoyofps_config.ini").exists()
-
-
-def test_touch_launch_requires_unlocker_confirmation():
-    from module.game import local
-
-    controller = object.__new__(local.LocalGameController)
-    controller._config = SimpleNamespace(get_value=lambda key: False)
-    controller.is_game_running = Mock()
-
-    with pytest.raises(PermissionError, match="风险确认"), controller.launch_touch_game((1280, 720)):
-        pytest.fail("未确认时不应启动触屏模式")
-    controller.is_game_running.assert_not_called()
 
 
 def test_touch_image_matching_uses_native_template_without_pc_fallback(monkeypatch, tmp_path):

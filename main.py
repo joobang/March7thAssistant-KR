@@ -442,7 +442,6 @@ from tasks.weekly.universe import Universe
 from tasks.daily.redemption import Redemption
 from tasks.weekly.currency_wars import CurrencyWars
 from tasks.weekly.divergent_universe import DivergentUniverse
-from tasks.base.genshin_starRail_fps_unlocker import Genshin_StarRail_fps_unlocker
 from tasks.base import screen_test
 from tasks import character_export
 
@@ -713,7 +712,6 @@ def run_sub_task_update(action):
     update_tasks = {
         "universe_update": Universe.update,
         "fight_update": Fight.update,
-        "mobileui_update": Genshin_StarRail_fps_unlocker.update
     }
     task = update_tasks.get(action)
     if task:
@@ -838,7 +836,7 @@ def _run_action(action=None, no_run_immediately=False, workflow_name=None, workf
         run_sub_task_gui(action)
 
     # 子任务 更新项目
-    elif action in ["universe_update", "fight_update", "mobileui_update"]:
+    elif action in ["universe_update", "fight_update"]:
         run_sub_task_update(action)
 
     elif action == "game":

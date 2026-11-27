@@ -31,6 +31,7 @@ class DivergentUniverse:
         self._save_attempted: bool = False  # 本轮是否尝试过存档
         self.stage_finish: bool = False  # 是否完成当前阶段
         self.unsupported_area: bool = False  # 是否遇到暂不支持区域
+        self._korean_selection = None
 
     @staticmethod
     def _get_count_config(cycle: Literal["daily", "weekly"]):
@@ -67,8 +68,7 @@ class DivergentUniverse:
 
     def start(self, universe_type: Optional[Literal["normal", "cycle"]] = None) -> bool:
         if du.game_language(cfg) == "ko_KR":
-            log.warning("한국어 차분화 우주 자동 실행은 아직 검증 중입니다. du_probe로 화면을 확인해 주세요.")
-            return False
+            return self.run_korean(universe_type)
         log.hr('准备差分宇宙', '0')
         success = self.run(universe_type)
         if success:
@@ -95,7 +95,13 @@ class DivergentUniverse:
         检查差分宇宙积分，达到 18000 时记录时间戳
         """
         if du.game_language(cfg) == "ko_KR":
-            log.warning("한국어 차분화 우주 자동 실행은 아직 검증 중입니다. du_probe로 화면을 확인해 주세요.")
+            frame = self.korean_frame()
+            score = frame.score() if frame.find("lobby_start") else None
+            if score:
+                log.info(f"차분화 우주 주간 점수 {score['current']} / {score['limit']}")
+                if score["state"] == "quota_reached":
+                    cfg.save_timestamp("weekly_divergent_timestamp")
+                    return True
             return False
         screen.change_to("divergent_main", max_recursion=1)
 
@@ -129,6 +135,101 @@ class DivergentUniverse:
             return self.loop()
         return False
 
+    def run_korean(self, universe_type=None, *, resume=False):
+        from module.automation.automation import capture_viewport, screenshot_retry_timeout
+        from utils.screenshot_util import save_error_screenshot
+
+        if get_control_backend(cfg) != "local":
+            log.error("한국어 차분화 우주 테스트는 Windows PC 게임 창에서 실행해 주세요.")
+            return False
+
+        try:
+            with screenshot_retry_timeout(10):
+                auto.take_screenshot()
+                viewport = du.korean_viewport(auto.screenshot)
+                with capture_viewport(viewport):
+                    return self.loop() if resume else self.run(universe_type)
+        except RuntimeError as error:
+            log.error(f"차분화 우주 중지. {error}")
+            self.screenshot = auto.screenshot
+            with screenshot_retry_timeout(0):
+                save_error_screenshot(log)
+            return False
+
+    @staticmethod
+    def korean_frame():
+        frame = du.KoreanFrame(auto)
+        if frame.find("disconnect"):
+            raise RuntimeError("서버 연결이 끊겼습니다. 게임에 다시 로그인한 뒤 탐사를 이어가세요.")
+        return frame
+
+    def wait_korean(self, group, action=None, timeout=20):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            frame = self.korean_frame()
+            if frame.find(group, action):
+                return frame
+            time.sleep(1)
+        return None
+
+    def start_korean_war(self, mode):
+        level = int(cfg.weekly_divergent_level)
+        if mode == "cycle":
+            level = min(level, 5)
+        if mode not in {"normal", "cycle"} or not 1 <= level <= 5:
+            raise RuntimeError("한국어 테스트는 일반·주기 연산의 난이도 I–V를 지원합니다.")
+
+        frame = self.korean_frame()
+        if frame.find("world_entry"):
+            auto.press_key(cfg.get_game_hotkey("hotkey_interact", "f"))
+            frame = self.wait_korean("lobby_start")
+            if frame is None:
+                raise RuntimeError("차분화 우주 입구에서 메인 화면이 열리지 않았습니다.")
+
+        if frame.find("mission_page"):
+            auto.press_key("esc")
+            frame = self.wait_korean("lobby_start")
+            if frame is None:
+                raise RuntimeError("안정적 배열에서 차분화 우주 메인 화면으로 돌아오지 못했습니다.")
+
+        if lobby := frame.find("lobby_start"):
+            score = frame.score()
+            if score:
+                log.info(f"차분화 우주 주간 점수 {score['current']} / {score['limit']}")
+            if not auto.click_element_with_pos(lobby[1]):
+                raise RuntimeError("게임 시작 버튼을 클릭하지 못했습니다.")
+            frame = self.wait_korean("mode_page")
+        if frame is None:
+            raise RuntimeError("모드 선택 화면이 열리지 않았습니다.")
+        if frame.find("mode_page"):
+            if frame.find("continue_run") or frame.find("end_previous"):
+                raise RuntimeError("진행 중인 탐사가 있습니다. 게임에서 진도를 계속한 뒤 이어서 실행해 주세요.")
+            option = frame.find("mode", mode)
+            if not option or not auto.click_element_with_pos(option[1]):
+                raise RuntimeError("설정한 연산 모드를 선택하지 못했습니다.")
+            frame = self.wait_korean("launch")
+        if frame is None:
+            raise RuntimeError("연산 입장 화면을 확인하지 못했습니다.")
+        # The five difficulty buttons share the same vertical rail as the PC UI.
+        if not auto.click_element(du.n150_area(51, 99 + (level - 1) * 58, 34, 32), "crop",
+                                  take_screenshot=False):
+            raise RuntimeError("연산 난이도를 선택하지 못했습니다.")
+
+        time.sleep(1)
+        frame = self.wait_korean("launch")
+        if frame is None or not frame.difficulty(level):
+            raise RuntimeError(f"선택한 난이도 {level}을 입장 화면에서 확인하지 못했습니다.")
+        if not frame.find("party") or auto.find_element(
+            "./assets/images/share/universe/empty_character_slot.png", "image_count", 0.8,
+            crop=du.n150_area(581, 660, 213, 64), pixel_bgr=[233, 233, 233],
+        ):
+            raise RuntimeError("입장 화면에서 사용할 파티를 편성한 뒤 다시 실행해 주세요.")
+
+        if not du.click_text(auto, cfg, "launch", "start", max_retries=3):
+            raise RuntimeError("차분화 우주 가동 버튼을 클릭하지 못했습니다.")
+        log.info(f"차분화 우주 탐사를 시작합니다. 난이도 {level}")
+        return True
+
     def get_reward(self):
         log.info("开始领取奖励")
         claimed = False
@@ -150,8 +251,7 @@ class DivergentUniverse:
 
     def start_war(self, type: Literal["normal", "cycle"] = "normal") -> bool:
         if du.game_language(cfg) == "ko_KR":
-            log.warning("한국어 차분화 우주 자동 실행은 아직 검증 중입니다. du_probe로 화면을 확인해 주세요.")
-            return False
+            return self.start_korean_war(type)
         log.info("开始「差分宇宙」")
         screen.change_to("divergent_mode_select")
 
@@ -249,7 +349,34 @@ class DivergentUniverse:
 
         start_time = time.monotonic()
         timeout = 60 * 120  # 120分钟超时
+        korean = du.game_language(cfg) == "ko_KR"
+        last_stage = ""
+        last_progress = start_time
         while True:
+            if korean:
+                if time.monotonic() - start_time > timeout:
+                    raise RuntimeError("탐사 실행 시간 120분을 초과했습니다.")
+                frame = self.korean_frame()
+                if self.check_korean_settlement(frame):
+                    return self.finish_korean_run()
+
+                stage = frame.stage()
+                if self.current_stage != last_stage:
+                    last_stage = self.current_stage
+                    last_progress = time.monotonic()
+                if time.monotonic() - last_progress > 360:
+                    raise RuntimeError("6분 동안 다음 구역 진입을 확인하지 못했습니다. 현재 화면에서 탐사를 이어갈 수 있습니다.")
+                if self.check_title(frame) or self.check_click_close(frame):
+                    time.sleep(1)
+                    continue
+                if stage:
+                    self.check_stage(stage)
+                    time.sleep(1)
+                    continue
+                self.check_auto_battle()
+                time.sleep(2)
+                continue
+
             # 检查超时
             if time.monotonic() - start_time > timeout:
                 log.error("差分宇宙主循环超时（120分钟），强制退出")
@@ -280,22 +407,9 @@ class DivergentUniverse:
 
             time.sleep(4)
 
-    def check_stage(self):
-        if not auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
-            return
-
-        if result := auto.find_element("./assets/images/screen/divergent_universe/show.png", "image", 0.9, crop=(383 / 1920, 57 / 1080, 71 / 1920, 48 / 1080)):
-            auto.press_key_down("alt")
-            try:
-                time.sleep(1)
-                auto.click_element_with_pos(result)
-                time.sleep(1)
-            finally:
-                auto.press_key_up("alt")
-            time.sleep(2)
-
+    def check_stage(self, stage=None):
         if du.game_language(cfg) == "ko_KR":
-            stage = du.read_korean_stage(auto)
+            stage = stage or self.korean_frame().stage()
             if not stage:
                 return
             current, total = str(stage.current), str(stage.total)
@@ -303,6 +417,17 @@ class DivergentUniverse:
             station_id = stage.station
             station = du.STATION_BY_ID[station_id]
         else:
+            if not self.stage_visible():
+                return
+            if result := auto.find_element("./assets/images/screen/divergent_universe/show.png", "image", 0.9, crop=(383 / 1920, 57 / 1080, 71 / 1920, 48 / 1080)):
+                auto.press_key_down("alt")
+                try:
+                    time.sleep(1)
+                    auto.click_element_with_pos(result)
+                    time.sleep(1)
+                finally:
+                    auto.press_key_up("alt")
+                time.sleep(2)
             stage = self._read_zh_stage()
             if not stage:
                 return
@@ -330,6 +455,8 @@ class DivergentUniverse:
             elif route == "event":
                 self.process_event_stage()
             else:
+                if du.game_language(cfg) == "ko_KR":
+                    raise RuntimeError(f"자동 이동을 지원하지 않는 구역입니다 ({station_id}).")
                 log.info("检测到暂不支持的区域类型")
                 self.unsupported_area = True
                 if station_id == "adventure":
@@ -345,7 +472,7 @@ class DivergentUniverse:
                                 time.sleep(2)
                                 break
                         else:
-                            if not auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
+                            if not self.stage_visible():
                                 log.error("多次尝试关闭冒险教学弹窗失败")
                                 raise RuntimeError("多次尝试关闭冒险教学弹窗失败")
                 self.process_leave()
@@ -355,12 +482,42 @@ class DivergentUniverse:
             # 此时只需要暂离，重新进入，左上角就会显示正确的区域类型
             # 火箭喷射信标也有类似效果
             log.info("发现阶段完成但区域未变化，可能存在区域类型显示错误")
+            if du.game_language(cfg) == "ko_KR":
+                # The old HUD can remain visible for a frame after door input.
+                return
             self.process_re_enter()
             # 避免区域相同 反复重进
             self.current_stage = ""  # 重置当前关卡阶段
 
         elif self.process_stage and route in ("battle", "event"):
             self.process_battle_stage_finish()
+
+    def stage_visible(self, max_retries=1):
+        if du.game_language(cfg) == "ko_KR":
+            return auto.find_element(
+                "./assets/images/screen/divergent_universe/ko_stage.png", "image", 0.90,
+                crop=du.n150_area(12, 25, 60, 44), scale_range=(0.8, 1.45),
+                max_retries=max_retries, retry_delay=0.5,
+            )
+        return auto.find_element(
+            "./assets/images/screen/divergent_universe/stage.png", "image", 0.9,
+            crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080),
+            max_retries=max_retries, retry_delay=0.5,
+        )
+
+    def interact_prompt(self, key, *, compact=False):
+        if du.game_language(cfg) == "ko_KR" and key == "f":
+            return auto.find_element(
+                "./assets/images/screen/divergent_universe/ko_interact_f.png", "image", 0.90,
+                crop=du.n150_area(550, 370, 85, 100), scale_range=(0.8, 1.45),
+            )
+        return find_interact_prompt(auto, key, compact=compact)
+
+    def loot_prompt(self):
+        if du.game_language(cfg) == "ko_KR":
+            return self.korean_frame().find("loot", "loot")
+        return auto.find_element(("战利品", "混沌药箱"), "text",
+                                 crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True)
 
     def _read_zh_stage(self):
         keywords = ["战斗", "精英", "事件", "异常", "奖励", "财富", "冒险", "商店", "铸造", "空白", "首领", "休整", "转化"]
@@ -540,22 +697,24 @@ class DivergentUniverse:
             try:
                 start_time = time.monotonic()
                 while time.monotonic() - start_time < timeout:
-                    if find_interact_prompt(auto, interact_key, compact=True):
+                    if self.interact_prompt(interact_key, compact=True):
                         has_f_or_adjusted_in_window = True
                         log.debug("检测到交互键提示")
                         if not stable_mode:
                             auto.press_key_up("w")
-                        if auto.find_element("事件", "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+                        if (du.game_language(cfg) == "ko_KR"
+                                or auto.find_element("事件", "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True)):
                             auto.press_key(interact_key)
                             time.sleep(2)
                             event_start_time = time.monotonic()
                             # for _ in range(100):
-                            while time.monotonic() - event_start_time < 30 * 60:  # 最多等待30分钟 应该不会有人战斗能打半小时吧
+                            event_timeout = 120 if du.game_language(cfg) == "ko_KR" else 30 * 60
+                            while time.monotonic() - event_start_time < event_timeout:  # 最多等待30分钟 应该不会有人战斗能打半小时吧
                                 if self.check_click_close() or self.check_title() or self.check_auto_battle():
                                     if self.stage_finish:
                                         return
                                     time.sleep(2)
-                                elif auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
+                                elif self.stage_visible():
                                     break
                                 else:
                                     time.sleep(2)
@@ -584,9 +743,11 @@ class DivergentUniverse:
                                 # has_f_or_adjusted_in_window = True
                                 if stable_mode:
                                     auto.press_key_down("w")
-                                auto.press_key(adjust_key, wait_time=0.15)
-                                if stable_mode:
-                                    auto.press_key_up("w")
+                                try:
+                                    auto.press_key(adjust_key, wait_time=0.15)
+                                finally:
+                                    if stable_mode:
+                                        auto.press_key_up("w")
                             else:
                                 if stable_mode:
                                     auto.press_key("w")
@@ -626,7 +787,8 @@ class DivergentUniverse:
                             else:
                                 start_time += 2
 
-                            auto.press_key_down("w")
+                            if not stable_mode:
+                                auto.press_key_down("w")
 
                         area_window_start_time = time.monotonic()
                         area_window_start_value = area_window_latest_value
@@ -661,7 +823,7 @@ class DivergentUniverse:
                     return
                 log.info(f"事件超时（第 {timeout_retries}/3 次），重新进入关卡重试")
 
-                if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+                if self.interact_prompt(interact_key) and self.loot_prompt():
                     log.info(f"检测到{auto.matched_text}，尝试点击")
                     auto.press_key(interact_key)
                     time.sleep(2)
@@ -691,32 +853,31 @@ class DivergentUniverse:
         is_boss = self.current_stage.endswith("|首领")
         forward_attempts = 0
 
-        def stage_visible(max_retries=1):
-            return auto.find_element(
-                "./assets/images/screen/divergent_universe/stage.png", "image", 0.9,
-                crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080), max_retries=max_retries, retry_delay=0.5,
-            )
-
         for _ in range(3):
             time.sleep(2)
             enemy_crop = (675 / 1920, 41 / 1080, 274 / 1920, 37 / 1080)
+            sprint = get_control_backend(cfg) != "cloud" and not cfg.weekly_divergent_stable_mode
             auto.press_key_down("w")
-            time.sleep(0.2)
-            if get_control_backend(cfg) != "cloud" and not cfg.weekly_divergent_stable_mode:
-                auto.press_key_down("shift")
-            start_time = time.monotonic()
-            while time.monotonic() - start_time < 3:  # 最多等待3秒
-                if auto.find_element("./assets/images/screen/divergent_universe/enemy.png", "image", 0.9, crop=enemy_crop):
-                    log.info("检测到敌对目标")
-                    break
-            else:
-                log.info("未检测到敌对目标")
-            time.sleep(0.8)
-            auto.press_key_up("w")
-            if get_control_backend(cfg) != "cloud" and not cfg.weekly_divergent_stable_mode:
-                auto.press_key_up("shift")
+            try:
+                time.sleep(0.2)
+                if sprint:
+                    auto.press_key_down("shift")
+                start_time = time.monotonic()
+                while time.monotonic() - start_time < 3:
+                    if auto.find_element("./assets/images/screen/divergent_universe/enemy.png", "image", 0.9, crop=enemy_crop):
+                        log.info("检测到敌对目标")
+                        break
+                else:
+                    log.info("未检测到敌对目标")
+                time.sleep(0.8)
+            finally:
+                try:
+                    auto.press_key_up("w")
+                finally:
+                    if sprint:
+                        auto.press_key_up("shift")
 
-            if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+            if self.interact_prompt(interact_key) and self.loot_prompt():
                 log.info(f"检测到{auto.matched_text}，尝试点击")
                 auto.press_key(interact_key)
                 time.sleep(2)
@@ -733,7 +894,7 @@ class DivergentUniverse:
             for _ in range(5):
                 auto.press_mouse()
                 time.sleep(0.5)
-                if not stage_visible():
+                if not self.stage_visible():
                     break
             for _ in range(100):
                 if self.check_click_close() or self.check_title():
@@ -745,13 +906,13 @@ class DivergentUniverse:
                 return
 
             # 进入战斗失败，尝试重新进入
-            if stage_visible():
+            if self.stage_visible():
                 auto.press_key("s")
                 log.info("尝试进入战斗")
                 for _ in range(5):
                     auto.press_mouse()
                     time.sleep(0.5)
-                    if not stage_visible():
+                    if not self.stage_visible():
                         break
                 for _ in range(100):
                     if self.check_click_close() or self.check_title():
@@ -760,17 +921,17 @@ class DivergentUniverse:
                         break
                 if self.stage_finish:
                     return
-                on_stage = stage_visible(max_retries=2 if is_boss else 1)
+                on_stage = self.stage_visible(max_retries=2 if is_boss else 1)
                 if is_boss:
                     while on_stage and forward_attempts < 5:
                         forward_attempts += 1
                         log.info(f"前进 1 秒接近首领（{forward_attempts}/5）")
                         moved = auto.press_key("w", 1)
-                        on_stage = stage_visible(max_retries=2)
+                        on_stage = self.stage_visible(max_retries=2)
                         if on_stage and moved is not False:
                             auto.press_mouse()
                             time.sleep(1)
-                            on_stage = stage_visible(max_retries=2)
+                            on_stage = self.stage_visible(max_retries=2)
                     if not on_stage:
                         self.process_stage = True
                         return
@@ -789,7 +950,7 @@ class DivergentUniverse:
         time.sleep(2)
         self.process_stage = False
 
-        if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+        if self.interact_prompt(interact_key) and self.loot_prompt():
             log.info(f"检测到{auto.matched_text}，尝试点击")
             auto.press_key(interact_key)
             time.sleep(2)
@@ -802,7 +963,7 @@ class DivergentUniverse:
         if self.process_random_door():
             return
 
-        if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+        if self.interact_prompt(interact_key) and self.loot_prompt():
             log.info(f"检测到{auto.matched_text}，尝试点击")
             auto.press_key(interact_key)
             time.sleep(2)
@@ -884,6 +1045,10 @@ class DivergentUniverse:
         self.process_leave()
 
     def process_leave(self):
+        if du.game_language(cfg) == "ko_KR":
+            if self.korean_frame().is_report():
+                return
+            raise RuntimeError("현재 구역에서 자동 진행을 계속할 수 없습니다. 탐사 진도를 보존했습니다.")
         log.info("尝试离开当前关卡")
         auto.press_key("esc")
         if du.click_text(auto, cfg, "end_run", "end_run", max_retries=10):
@@ -921,13 +1086,15 @@ class DivergentUniverse:
 
     def process_re_enter(self) -> bool:
         """重新进入关卡；区域编号已变化时返回 True，调用方应停止旧区域流程。"""
+        if du.game_language(cfg) == "ko_KR":
+            return self.has_stage_changed()
         interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
         log.info("尝试重新进入当前关卡")
         for _ in range(3):
             auto.press_key("esc")
             if auto.click_element("暂离", "text", max_retries=10, crop=(1238 / 1920, 859 / 1080, 562 / 1920, 165 / 1080)):
                 screen.wait_for_screen_change("main")
-                if find_interact_prompt(auto, interact_key):
+                if self.interact_prompt(interact_key):
                     auto.press_key(interact_key)
                     screen.wait_for_screen_change('divergent_main')
                 screen.change_to("divergent_mode_select")
@@ -952,7 +1119,7 @@ class DivergentUniverse:
         # 弹窗在点击“继续进度”后立刻出现，只在开头几秒内探测，避免常态路径反复 OCR
         prompt_deadline = time.monotonic() + 10
         for attempt in range(max_retries):
-            if auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
+            if self.stage_visible():
                 return True
             # 关卡界面通常一两秒内就会出现，迟迟不出现时优先怀疑这个弹窗
             if (attempt >= 3 and time.monotonic() < prompt_deadline
@@ -1056,34 +1223,28 @@ class DivergentUniverse:
         try:
             start_time = time.monotonic()
             # time.sleep(1)
+            korean = du.game_language(cfg) == "ko_KR"
             while time.monotonic() - start_time < timeout:
-                # time.sleep(0.1)
-
-                if find_interact_prompt(auto, interact_key, compact=True):
-                    log.debug("检测到交互键提示")
+                if self.interact_prompt(interact_key, compact=True):
                     if not stable_mode:
                         auto.press_key_up("w")
-                        # auto.press_key_up("shift")
+                    if korean:
+                        frame = self.korean_frame()
+                        door = frame.find("world_door") and frame.stage()
+                    else:
+                        door = auto.find_element("./assets/images/screen/divergent_universe/door.png", "image", 0.9, crop=door_crop)
 
-                    if auto.find_element("./assets/images/screen/divergent_universe/door.png", "image", 0.9, crop=door_crop):
-                        auto.press_key(interact_key)
-                        auto.press_key(interact_key)
-                        auto.press_key(interact_key)
-                        auto.press_key(interact_key)
-                        auto.press_key(interact_key)
+                    if door:
+                        for _ in range(1 if korean else 5):
+                            auto.press_key(interact_key)
                         time.sleep(2)
-                        if auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
+                        if self.stage_visible():
                             return False
                         self.stage_finish = True
                         log.info("成功进入随意门")
                         return True
-                    else:
-                        if not stable_mode:
-                            auto.press_key_down("w")
-                            # time.sleep(0.2)
-                            # auto.press_key_down("shift")
-                        # else:
-                        #     auto.press_key("w", 1)
+                    if not stable_mode:
+                        auto.press_key_down("w")
                         time.sleep(0.5)
 
                 # 检测随意门位置，细微调整方向
@@ -1098,9 +1259,11 @@ class DivergentUniverse:
                     adjust_key = "a" if offset < 0 else "d"
                     if stable_mode:
                         auto.press_key_down("w")
-                    auto.press_key(adjust_key, wait_time=0.15)
-                    if stable_mode:
-                        auto.press_key_up("w")
+                    try:
+                        auto.press_key(adjust_key, wait_time=0.15)
+                    finally:
+                        if stable_mode:
+                            auto.press_key_up("w")
                 else:
                     if stable_mode:
                         auto.press_key("w")
@@ -1110,12 +1273,24 @@ class DivergentUniverse:
                 # auto.press_key_up("shift")
         return False
 
-    def check_title(self):
-        found = du.find_text(auto, cfg, "title")
+    def check_title(self, frame=None):
+        korean = du.game_language(cfg) == "ko_KR"
+        if korean:
+            frame = frame or self.korean_frame()
+            found = frame.find("title")
+            if not found and frame.is_event():
+                found = ("event", None)
+        else:
+            found = du.find_text(auto, cfg, "title")
         if not found:
+            if korean:
+                self._korean_selection = None
             return False
 
         title, _ = found
+        if korean:
+            self.process_korean_title(title, frame)
+            return True
         log.info(f"检测到差分宇宙界面：{title}")
         handlers = {
             "mask": self.process_mask,
@@ -1132,14 +1307,103 @@ class DivergentUniverse:
             "chaos_box": self.process_chaos_box,
             "talent": self.process_talent_management,
         }
-        korean = du.game_language(cfg) == "ko_KR"
         advances_stage = title in ("next_station", "station_card")
-        if advances_stage and not korean:
+        if advances_stage:
             self.stage_finish = True
-        handled = handlers[title]()
-        if advances_stage and korean and handled:
-            self.stage_finish = True
+        handlers[title]()
         return True
+
+    def process_korean_title(self, title, frame):
+        now = time.monotonic()
+        if self._korean_selection is None or self._korean_selection[0] != title:
+            self._korean_selection = title, now
+            log.info(f"차분화 우주 선택 화면 {title}")
+        elif now - self._korean_selection[1] > 45:
+            raise RuntimeError(f"선택 화면에서 진행하지 못했습니다 ({title}).")
+
+        if title == "mask":
+            mask = frame.find("mask_action", "choose_mask")
+            if mask:
+                names = [(box, text) for box, (text, score) in frame.in_area(du.n150_area(85, 355, 255, 340))
+                         if du.compact(text).endswith("가면") and score >= du.MIN_CONFIDENCE]
+                if names:
+                    auto.click_element_with_pos(auto.calculate_text_position(names[0][0], relative=False))
+                else:
+                    auto.click_element_with_pos(mask[1])
+            return
+
+        if title in {"shop", "workbench"}:
+            auto.press_key("esc")
+            return
+
+        if title == "event":
+            self.process_korean_event(frame)
+            return
+
+        if title == "next_station":
+            self.process_korean_station(frame)
+            return
+
+        confirm = {
+            "equation": "equation_confirm", "blessing": "blessing_confirm",
+            "curio": "curio_confirm", "wish": "wish_confirm", "station_card": "card_confirm",
+        }.get(title)
+        if confirm is None:
+            raise RuntimeError(f"지원하지 않는 선택 화면입니다 ({title}).")
+        if title == "station_card":
+            if not frame.find("card_upgrade"):
+                return
+            choice = du.n150_area(62, 166, 95, 80)
+        else:
+            # The first card occupies this strip in both the 2- and 3-card layouts.
+            choice = du.n150_area(295, 305, 70, 112)
+        if frame.find(confirm, "confirm") and auto.click_element(choice, "crop", take_screenshot=False):
+            time.sleep(0.8)
+            du.click_text(auto, cfg, confirm, "confirm")
+
+    def process_korean_station(self, frame):
+        priorities = {"boss": 0, "rest": 0, "battle": 1, "elite": 1, "reward": 2, "event": 2,
+                      "forge": 3, "shop": 3, "wealth": 3, "abnormal": 3, "blank": 3}
+        if cfg.divergent_station_priority_enable:
+            for station, name in du.STATION_BY_ID.items():
+                if name in cfg.divergent_station_disabled:
+                    priorities[station] = 99
+                elif name in cfg.divergent_station_priority:
+                    priorities[station] = cfg.divergent_station_priority[name]
+
+        stations = [frame.find(f"station_{index}") for index in range(1, 4)]
+        choices = [station for station in stations if station and du.stage_route(station[0]) != "unsupported"]
+        if choices:
+            station, pos = min(choices, key=lambda choice: priorities.get(choice[0], 100))
+            if not auto.click_element_with_pos(pos):
+                return
+        elif auto.click_element("./assets/images/screen/divergent_universe/ko_boss_card.png", "image",
+                                0.87, crop=du.n150_area(460, 335, 105, 122), scale_range=(0.8, 1.2)):
+            station = "boss"
+        else:
+            return
+        time.sleep(0.8)
+        if du.click_text(auto, cfg, "station_confirm", "confirm"):
+            log.info(f"다음 행선지 선택 {station}")
+
+    def process_korean_event(self, frame):
+        for action in ("select", "confirm"):
+            button = frame.find("event_confirm", action)
+            if button:
+                auto.click_element_with_pos(button[1])
+                return
+        right_panel = du.n150_area(679, 69, 332, 659)
+        for icon in ("event_next", "event_choose", "event_leave"):
+            if auto.click_element(f"./assets/images/screen/divergent_universe/{icon}.png",
+                                  "image", 0.9, crop=right_panel, scale_range=(0.55, 1)):
+                return
+        candidates = auto.find_element("./assets/images/screen/divergent_universe/event_option.png",
+                                       "image_with_multiple_targets", 0.9, crop=right_panel)
+        if not candidates:
+            candidates = auto.find_element("./assets/images/screen/divergent_universe/event_option.png",
+                                           "image_with_multiple_targets", 0.9, crop=right_panel, scale_range=0.6)
+        if candidates:
+            auto.click_element_with_pos(max(candidates, key=lambda box: box[0][1]))
 
     def process_mask(self):
         """
@@ -1735,20 +1999,55 @@ class DivergentUniverse:
         """
         检查并开启自动战斗
         """
-        if game_option_enabled(cfg, "auto_battle_detect_enable") and auto.find_element("./assets/images/share/base/not_auto.png", "image", 0.9, crop=(0.0 / 1920, 903.0 / 1080, 144.0 / 1920, 120.0 / 1080)):
+        scales = (0.55, 1.1) if du.game_language(cfg) == "ko_KR" else None
+        if game_option_enabled(cfg, "auto_battle_detect_enable") and auto.find_element("./assets/images/share/base/not_auto.png", "image", 0.9, crop=(0.0 / 1920, 903.0 / 1080, 144.0 / 1920, 120.0 / 1080), scale_range=scales):
             log.info("尝试开启自动战斗")
             auto.press_key(cfg.get_game_hotkey("hotkey_auto_battle", "v"))
             return True
         return False
 
-    def check_click_close(self):
+    def check_click_close(self, frame=None):
         """
         检查并点击 “点击空白处关闭” 或 “点击领取今日补给” 的按钮
         """
+        if du.game_language(cfg) == "ko_KR":
+            found = (frame or self.korean_frame()).find("close_popup")
+            return bool(found and auto.click_element_with_pos(found[1]))
         if auto.click_element(("点击空白处关闭", "点击领取今日补给"), 'text', None, crop=(816 / 1920, 778 / 1080, 284 / 1920, 298 / 1080), include=True):
             log.info(f"检测到 “{auto.matched_text}” 的按钮，尝试点击")
             return True
         return False
+
+    def finish_korean_run(self):
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            frame = self.korean_frame()
+            if frame.find("lobby_start") or frame.find("mode_page"):
+                if self.result is True:
+                    self.record_completed_run()
+                return self.result is True
+            time.sleep(1)
+        raise RuntimeError("정산 후 차분화 우주 화면으로 돌아오지 못했습니다.")
+
+    def check_korean_settlement(self, frame):
+        result = frame.find("settlement_result")
+        button = frame.find("settlement_action", "return_main")
+        if not button or not frame.is_report():
+            return False
+        self.result = result[0] == "success" if result else None
+        self.screenshot = auto.screenshot
+        if self.result is None:
+            from module.automation.automation import screenshot_retry_timeout
+            from utils.screenshot_util import save_error_screenshot
+
+            log.warning("정산 화면에 도착했습니다. 탐사 성공 여부를 확인할 수 없어 완료 횟수를 기록하지 않습니다.")
+            with screenshot_retry_timeout(0):
+                save_error_screenshot(log)
+        if not auto.click_element_with_pos(button[1]):
+            raise RuntimeError("정산 화면의 메인 화면으로 돌아가기 버튼을 클릭하지 못했습니다.")
+        if self.result is not None:
+            log.info("탐사 성공 확인" if self.result else "탐사 중단 확인")
+        return True
 
     def check_click_return(self):
         """

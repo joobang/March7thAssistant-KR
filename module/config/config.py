@@ -122,6 +122,7 @@ def _is_retryable_io_error(e):
 # 环境变量覆盖映射：环境变量名 -> (配置键, 转换函数)
 # 环境变量值为 "true"/"1" 时为 True，"false"/"0" 时为 False
 _ENV_OVERRIDE_MAP = {
+    "MARCH7TH_GAME_TITLE_NAME": ("game_title_name", str),
     "MARCH7TH_CLOUD_GAME_ENABLE": ("cloud_game_enable", lambda v: v.lower() in ("true", "1")),
     "MARCH7TH_CLOUD_GAME_USE_PAID_TIME": ("cloud_game_use_paid_time", lambda v: v.lower() in ("true", "1")),
     "MARCH7TH_BROWSER_HEADLESS_ENABLE": ("browser_headless_enable", lambda v: v.lower() in ("true", "1")),

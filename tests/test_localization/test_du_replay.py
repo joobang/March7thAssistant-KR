@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import sys
+import time
+from contextlib import nullcontext
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
@@ -41,7 +43,7 @@ def test_replay_uses_collector_schema_and_reports_ambiguity(tmp_path):
     ocr = [
         frame("spacing.png", row("방정식을　선택하세요")),
         frame("joined.png", row("방정식을선택하세요")),
-        frame("wrong-area.png", row("방정식을 선택하세요", x=60)),
+        frame("wrong-area.png", row("방정식을 선택하세요", x=60, y=22)),
         frame("short.png", row("사건")),
         frame("ambiguous.png", row("방정식을선택하세요"), row("일반 적 처치! 축복 1회 선택 가능")),
         frame("low.png", row("방정식을선택하세요", confidence=0.79)),
@@ -56,7 +58,7 @@ def test_replay_uses_collector_schema_and_reports_ambiguity(tmp_path):
     assert report["missing_ocr"] == ["no-ocr.png"]
     decisions = {item["image"]: item["decisions"] for item in report["frames"]}
     for image in ("spacing.png", "joined.png"):
-        assert decisions[image]["title"]["hits"] == [{"id": "equation", "row": 0, "status": "candidate"}]
+        assert decisions[image]["title"]["hits"] == [{"id": "equation", "row": 0, "status": "matched"}]
     assert decisions["wrong-area.png"]["title"]["outside_crop"][0]["id"] == "equation"
     assert decisions["wrong-area.png"]["title"]["status"] == "missing"
     assert decisions["short.png"]["title"]["status"] == "unsafe_label"
@@ -64,11 +66,11 @@ def test_replay_uses_collector_schema_and_reports_ambiguity(tmp_path):
     assert decisions["low.png"]["title"]["status"] == "low_confidence"
     assert decisions["longer.png"]["title"]["status"] == "missing"
     assert decisions["progress.png"]["stage"]["hits"] == [
-        {"status": "candidate", "row": 0, "current": 5, "total": 13, "plane": 2,
+        {"status": "matched", "row": 0, "current": 5, "total": 13, "plane": 2,
          "station": "battle", "route": "battle"}
     ]
-    assert decisions["both-modes.png"]["mode.normal"]["status"] == "candidate"
-    assert decisions["both-modes.png"]["mode.cycle"]["status"] == "candidate"
+    assert decisions["both-modes.png"]["mode.normal"]["status"] == "matched"
+    assert decisions["both-modes.png"]["mode.cycle"]["status"] == "matched"
 
 
 @pytest.fixture
@@ -78,6 +80,8 @@ def task(monkeypatch):
     auto.calculate_text_position.side_effect = lambda box, relative: (box[0], box[2])
     for name, exports in {
         "module.automation": {"auto": auto},
+        "module.automation.automation": {"screenshot_retry_timeout": lambda _: nullcontext()},
+        "utils.screenshot_util": {"save_error_screenshot": Mock()},
         "module.config": {"cfg": SimpleNamespace(divergent_station_priority_enable=False)},
         "module.config.platform": {"get_control_backend": lambda cfg: "native"},
         "module.screen": {"screen": Mock()},
@@ -97,7 +101,7 @@ def task(monkeypatch):
     spec = importlib.util.spec_from_file_location("_test_du_replay_task", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "time", SimpleNamespace(sleep=Mock()))
+    monkeypatch.setattr(module, "time", SimpleNamespace(sleep=Mock(), monotonic=time.monotonic))
     registry = {}
     monkeypatch.setattr(du, "strings", lambda: registry)
     monkeypatch.setenv("M7A_GAME_LANGUAGE", "ko_KR")
@@ -110,19 +114,18 @@ def set_ocr(auto, *rows):
 
 def test_task_title_dispatch_only_for_verified_unique_in_crop(task):
     obj, auto, registry = task
-    obj.process_equation = Mock()
-    set_ocr(auto, row("방정식을선택하세요"))
+    obj.process_korean_title = Mock()
+    set_ocr(auto, row("방정식을선택하세요", confidence=0.78))
     assert not obj.check_title()
-    approve(registry, "title", "equation")
     set_ocr(auto, row("방정식을선택하세요", x=1400))
     assert not obj.check_title()
     set_ocr(auto, row("방정식을선택하세요"), row("일반적처치!축복1회선택가능"))
     assert not obj.check_title()
-    obj.process_equation.assert_not_called()
+    obj.process_korean_title.assert_not_called()
 
     set_ocr(auto, row("방정식을선택하세요"))
     assert obj.check_title()
-    obj.process_equation.assert_called_once()
+    assert obj.process_korean_title.call_args.args[0] == "equation"
 
 
 def test_mode_click_uses_requested_id_and_blocks_collisions(task):
@@ -156,13 +159,8 @@ def test_stage_routing_requires_verified_full_progress(task):
     obj.process_event_stage = Mock()
     auto.find_element.side_effect = lambda target, *_args, **_kwargs: target.endswith("/stage.png")
     assert not obj.current_stage
-    set_ocr(auto, row("(5/13) 제2차원-전투", x=72, y=19, width=170))
-    obj.check_stage()
-    assert not obj.current_stage
-
-    approve(registry, "stage", "plane_2")
-    approve(registry, "stage", "battle")
-    for text in ("전투", "(99/13) 제2차원-전투", "(5/13) 제2차원-전", "(5/13) 전투"):
+    for text in ("전투", "(99/13) 제2차원-전투", "(5/13) 제2차원-전", "(5/13) 전투",
+                 "(5/13) 제2차원-미확인"):
         set_ocr(auto, row(text, x=72, y=19, width=170))
         obj.check_stage()
         assert not obj.current_stage
@@ -179,11 +177,11 @@ def test_settlement_result_stays_unknown_on_conflict(task, text, expected):
     obj, auto, registry = task
     approve(registry, "settlement_result", "success")
     approve(registry, "settlement_result", "interrupted")
-    set_ocr(auto, row(text))
+    set_ocr(auto, row(text, x=330, y=431))
     obj._check_battle_result()
     assert obj.result is expected
 
-    set_ocr(auto, row("탐사성공"), row("탐사 중단", y=100))
+    set_ocr(auto, row("탐사성공", x=330, y=431), row("탐사 중단", x=330, y=470))
     obj._check_battle_result()
     assert obj.result is None
 
@@ -206,14 +204,14 @@ def test_task_station_dispatch_skips_ambiguous_card(task):
     approve(registry, "station_1", "boss")
     approve(registry, "station_2", "battle", "전투 구역")
     approve(registry, "station_confirm", "confirm", "구역 선택 확정")
-    auto.click_element.return_value = False  # Optional image confirmation is not present.
-    boss = row("우두머리", x=610, y=460, width=80)
-    battle = row("전투구역", x=855, y=460)
-    confirm = row("구역선택확정", x=640, y=960)
-    set_ocr(auto, row("다음행선지선택"), boss, row("우두머리", x=610, y=510), battle, confirm)
+    auto.click_element.return_value = False
+    boss = row("우두머리", x=740, y=700, width=80)
+    battle = row("전투구역", x=950, y=700)
+    confirm = row("구역선택확정", x=850, y=964)
+    set_ocr(auto, row("다음행선지선택"), boss, row("우두머리", x=740, y=722), battle, confirm)
 
     assert obj.check_title()
-    assert obj.stage_finish
+    assert not obj.stage_finish
     assert [call.args[0] for call in auto.click_element_with_pos.call_args_list] == [
         (battle["box"][0], battle["box"][2]),
         (confirm["box"][0], confirm["box"][2]),
@@ -302,7 +300,7 @@ def test_server_disconnect_replays_separately_from_settlement(tmp_path):
 
     decisions = replay(tmp_path, data=tmp_path)["frames"][0]["decisions"]
 
-    assert decisions["disconnect"]["status"] == "candidate"
+    assert decisions["disconnect"]["status"] == "matched"
     assert decisions["settlement_result"]["status"] == "missing"
 
 
@@ -327,10 +325,71 @@ def test_live_probe_reports_mission_and_preserves_letterbox_coordinates():
     assert inspect(screenshot, rows[1:])["missions"] == []
 
 
-def test_korean_automation_does_not_enter_or_settle_unverified_run(task):
-    obj, auto, _ = task
+def test_korean_start_uses_measured_menu_and_validates_difficulty(task, monkeypatch):
+    from PIL import Image
 
-    assert obj.start("cycle") is False
-    assert obj.run("cycle") is False
-    assert obj.check_divergent_universe_score() is False
-    assert not auto.mock_calls
+    obj, auto, _ = task
+    auto.screenshot = Image.new("RGB", (1024, 768))
+    cfg = obj.start_korean_war.__func__.__globals__["cfg"]
+    monkeypatch.setattr(cfg, "weekly_divergent_level", 5, raising=False)
+    auto.find_element.return_value = None
+    auto.click_element.return_value = True
+    frames = iter([
+        [row("게임시작", x=810, y=677, width=74)],
+        [row("모드선택", x=51, y=51, width=57), row("-+주기연산", x=269, y=367, width=99)],
+        [row("[차분화우주]가동", x=842, y=681, width=113)],
+        [row("차분화우주:낙원만필|난이도V", x=584, y=87, width=197),
+         row("캐릭터다운로드", x=589, y=626, width=82),
+         row("[차분화우주]가동", x=842, y=681, width=113)],
+        [row("[차분화우주]가동", x=842, y=681, width=113)],
+    ])
+    auto.perform_ocr.side_effect = lambda: set_ocr(auto, *next(frames))
+
+    assert obj.start_korean_war("cycle")
+    assert [call.args[0][0] for call in auto.click_element_with_pos.call_args_list] == [
+        [810, 677], [269, 367], [842, 681],
+    ]
+
+
+def test_korean_start_preserves_existing_exploration(task, monkeypatch):
+    from PIL import Image
+
+    obj, auto, _ = task
+    auto.screenshot = Image.new("RGB", (1024, 768))
+    cfg = obj.start_korean_war.__func__.__globals__["cfg"]
+    monkeypatch.setattr(cfg, "weekly_divergent_level", 5, raising=False)
+    set_ocr(auto, row("모드선택", x=52, y=54, width=56),
+            row("진도계속하기", x=276, y=492, width=76))
+
+    with pytest.raises(RuntimeError, match="진행 중인 탐사"):
+        obj.start_korean_war("cycle")
+    auto.click_element.assert_not_called()
+    auto.click_element_with_pos.assert_not_called()
+
+
+def test_korean_report_does_not_count_unverified_success(task):
+    from PIL import Image
+
+    obj, auto, _ = task
+    auto.screenshot = Image.new("RGB", (1024, 768))
+    result = row("탐사 성공", x=172, y=299, width=130)
+    main = row("메인화면으로돌아가기", x=454, y=685, width=125)
+    set_ocr(auto, result, main)
+    assert not obj.check_korean_settlement(du.KoreanFrame(auto))
+
+    set_ocr(auto, result, main, row("적합레벨", x=206, y=263, width=62),
+            row("차분화우주구축내용", x=362, y=262, width=121))
+    assert obj.check_korean_settlement(du.KoreanFrame(auto))
+    assert obj.result is None
+
+
+def test_korean_disconnect_stops_before_clicking_dialog(task):
+    from PIL import Image
+
+    obj, auto, _ = task
+    auto.screenshot = Image.new("RGB", (1024, 768))
+    set_ocr(auto, row("서버와연결이끊겼습니다다시로그인해주세요", x=387, y=369, width=250),
+            row("확인", x=486, y=443, width=53))
+    with pytest.raises(RuntimeError, match="서버 연결이 끊겼습니다"):
+        obj.korean_frame()
+    auto.click_element_with_pos.assert_not_called()

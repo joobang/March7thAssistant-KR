@@ -509,9 +509,9 @@
             {
                 "target_screen": "divergent_main",
                 "actions_list": [
-                    "auto.click_element('差分宇宙', 'text', None, 10, crop=(238.0 / 1920, 257.0 / 1080, 449.0 / 1920, 525.0 / 1080))",
+                    "auto.click_divergent_text('guide_entry', 'open')",
                     "time.sleep(1)",
-                    "auto.click_element('前往参与', 'text', None, 10, crop=(684.0 / 1920, 278.0 / 1080, 981.0 / 1920, 656.0 / 1080))"
+                    "auto.click_divergent_text('guide_participate', 'participate')"
                 ],
                 "actions_list_on_timeout": [
                     "auto.press_key(cfg.get_game_hotkey('hotkey_interact', 'f'))"
@@ -664,13 +664,13 @@
             {
                 "target_screen": "divergent_mode_select_normal",
                 "actions_list": [
-                    "auto.click_element('常规演算', 'text', None, 10, crop=(39 / 1920, 291 / 1080, 672 / 1920, 431 / 1080))"
+                    "auto.click_divergent_text('mode', 'normal')"
                 ]
             },
             {
                 "target_screen": "divergent_mode_select_cycle",
                 "actions_list": [
-                    "auto.click_element('周期演算', 'text', None, 10, crop=(39 / 1920, 291 / 1080, 672 / 1920, 431 / 1080))"
+                    "auto.click_divergent_text('mode', 'cycle')"
                 ]
             }
         ]

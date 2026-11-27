@@ -125,6 +125,12 @@ celerybeat.pid
 # Environments
 .env
 .venv
+localization/recordings/
+localization/candidates/
+localization/reports/
+localization/logs/
+localization/models/
+localization/verified/
 env/
 venv/
 ENV/

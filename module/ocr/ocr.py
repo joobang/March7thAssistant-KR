@@ -695,6 +695,14 @@ class OCR:
                     "Cls.engine_type": prefer_engine,
                     "Rec.engine_type": prefer_engine,
                 }
+                from tools.localization.runtime import game_language
+                if game_language(self._get_config()) == "ko_KR":
+                    from rapidocr import LangRec
+
+                    params["Rec.lang_type"] = LangRec.KOREAN
+                    model_dir = os.environ.get("M7A_KOREAN_OCR_MODEL_DIR")
+                    if model_dir:
+                        params["Global.model_root_dir"] = model_dir
                 if runtime_params:
                     params.update(runtime_params)
 

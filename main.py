@@ -606,7 +606,18 @@ def run_sub_task(action, task_override=None):
     # 不兼容无窗口模式的任务仅覆盖本次启动方式，不修改用户配置。
     visible_cloud_tasks = {"fight", "universe"}
     success = True
-    if action in ("currencywars", "currencywarsloop"):
+    from tools.localization.runtime import game_language
+    korean_du = action in {"divergent", "divergentloop", "divergenttemp"} and game_language(cfg) == "ko_KR"
+    if korean_du:
+        if get_control_backend(cfg) != "local":
+            log.error("한국어 차분화 우주 테스트는 Windows PC 게임 창에서 실행해 주세요.")
+            return False
+        from module.accounts.runtime import verify_ready
+
+        task_power_request.acquire(log)
+        game.prepare_local_takeover()
+        verify_ready(cfg)
+    elif action in ("currencywars", "currencywarsloop"):
         game.start(headless=None, screen_ready=CurrencyWars.game_screen_ready, preserve_cloud_session=True)
     elif action not in ("currencywarstemp", "divergenttemp"):
         game.start(headless=False if action in visible_cloud_tasks else None)
@@ -644,6 +655,8 @@ def run_sub_task(action, task_override=None):
 
     def divergent(mode=None):
         universe = DivergentUniverse()
+        if korean_du:
+            return universe.run_korean(resume=mode == "temp")
         if mode == "loop":
             _run_loop_task_with_telemetry("divergentloop", universe.start)
         elif mode == "temp":
@@ -675,7 +688,7 @@ def run_sub_task(action, task_override=None):
     if task:
         if action != "routine":
             task = observe_step(action, task)
-        if action in ("currencywarsloop", "divergentloop"):
+        if not korean_du and action in ("currencywarsloop", "divergentloop"):
             task()
         else:
             telemetry.track_task_start(action)
@@ -688,7 +701,7 @@ def run_sub_task(action, task_override=None):
                 telemetry.track_task_complete(action, False, time.time() - task_start_time)
                 raise
     publish_progress(phase="finish")
-    if action not in ("screen_test", "character_export"):
+    if not korean_du and action not in ("screen_test", "character_export"):
         if success:
             game.stop(False)
         elif effective_after_finish(cfg.after_finish) == "Exit":

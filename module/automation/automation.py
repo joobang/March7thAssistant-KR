@@ -24,6 +24,7 @@ from module.config.platform import InvalidGameConnection, TouchProfileInputError
 
 
 _screenshot_retry_timeout = ContextVar("screenshot_retry_timeout", default=60.0)
+_capture_viewport = ContextVar("capture_viewport", default=None)
 _TOUCH_UNSUPPORTED_INPUTS = (
     "press_key", "press_key_down", "press_key_up", "secretly_press_key", "press_mouse", "mouse_scroll",
 )
@@ -46,6 +47,16 @@ def screenshot_retry_timeout(timeout: float):
         yield
     finally:
         _screenshot_retry_timeout.reset(token)
+
+
+@contextmanager
+def capture_viewport(area):
+    """Interpret capture regions relative to the game's visible area for this task."""
+    token = _capture_viewport.set(area)
+    try:
+        yield
+    finally:
+        _capture_viewport.reset(token)
 
 
 class Automation(metaclass=SingletonMeta):
@@ -217,6 +228,10 @@ class Automation(metaclass=SingletonMeta):
         :param crop: 截图的裁剪区域，格式为(x1, y1, x2, y2)，默认为全屏。
         :return: 成功时返回截图及其位置和缩放因子，失败时抛出异常。
         """
+        viewport = _capture_viewport.get()
+        if viewport is not None:
+            left, top, width, height = viewport
+            crop = (left + crop[0] * width, top + crop[1] * height, crop[2] * width, crop[3] * height)
         start_time = time.monotonic()
         timeout = _screenshot_retry_timeout.get()
         adb = get_control_backend(cfg) == "adb"

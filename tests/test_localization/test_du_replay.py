@@ -295,7 +295,7 @@ def test_sample_letterbox_keeps_full_window_click_coordinates(task):
 
 def test_server_disconnect_replays_separately_from_settlement(tmp_path):
     capture = frame("disconnect.png", row(
-        "서버와 연결이 끊겼습니다. 다시 로그인해 주세요",
+        "서버와 연결이 끊겼습니다 다시 로그인해 주세요",
         x=725, y=520, width=400,
     ))
     write_jsonl(tmp_path / "ocr.jsonl", [capture])

@@ -18,6 +18,7 @@ import os
 import re
 from tasks.power.power import Power
 from tasks.weekly.weekly_reward import claim_weekly_reward
+from tools.localization import du_recognition as du
 
 
 class DivergentUniverse:
@@ -65,6 +66,9 @@ class DivergentUniverse:
         return counts
 
     def start(self, universe_type: Optional[Literal["normal", "cycle"]] = None) -> bool:
+        if du.game_language(cfg) == "ko_KR":
+            log.warning("한국어 차분화 우주 자동 실행은 아직 검증 중입니다. du_probe로 화면을 확인해 주세요.")
+            return False
         log.hr('准备差分宇宙', '0')
         success = self.run(universe_type)
         if success:
@@ -90,25 +94,27 @@ class DivergentUniverse:
         """
         检查差分宇宙积分，达到 18000 时记录时间戳
         """
+        if du.game_language(cfg) == "ko_KR":
+            log.warning("한국어 차분화 우주 자동 실행은 아직 검증 중입니다. du_probe로 화면을 확인해 주세요.")
+            return False
         screen.change_to("divergent_main", max_recursion=1)
 
         # 4.2版本周期积分将合并。本期积分奖励已由邮件发放。
-        if auto.find_element("奖励已由邮件发放", "text", crop=(33 / 1920, 911 / 1080, 397 / 1920, 103 / 1080), include=True):
+        if du.find_text(auto, cfg, "weekly_reward_mail"):
             log.info("检测到积分奖励已由邮件发放，跳过积分检查")
             cfg.save_timestamp("weekly_divergent_timestamp")
             return True
 
-        score_pos = (182 / 1920, 977 / 1080, 209 / 1920, 43 / 1080)
-        score = auto.get_single_line_text(score_pos)
+        score = auto.get_single_line_text(du.WEEKLY_SCORE_AREA)
         if not score:
             log.warning("未识别到差分宇宙积分")
             return False
 
-        score_parts = score.split('/')
-        if len(score_parts) == 2 and score_parts[0].isdigit() and score_parts[1].isdigit() and score_parts[1] in ("12000", "14000", "18000"):
-            max_score = score_parts[1]
-            log.info(f"差分宇宙积分：{score_parts[0]} / {max_score}")
-            if score_parts[0] == max_score:
+        parsed = du.weekly_score(score)
+        if parsed:
+            current, max_score = parsed
+            log.info(f"差分宇宙积分：{current} / {max_score}")
+            if current == max_score:
                 cfg.save_timestamp("weekly_divergent_timestamp")
                 log.info(f"已达到最高积分 {max_score}，记录时间")
                 return True
@@ -143,10 +149,13 @@ class DivergentUniverse:
         Power.process_immersifier_only()
 
     def start_war(self, type: Literal["normal", "cycle"] = "normal") -> bool:
+        if du.game_language(cfg) == "ko_KR":
+            log.warning("한국어 차분화 우주 자동 실행은 아직 검증 중입니다. du_probe로 화면을 확인해 주세요.")
+            return False
         log.info("开始「差分宇宙」")
         screen.change_to("divergent_mode_select")
 
-        if auto.click_element("结束并结算", "text", crop=(39 / 1920, 215 / 1080, 748 / 1920, 597 / 1080)):
+        if du.click_text(auto, cfg, "end_previous", "end_run"):
             log.warning("检测到未结算的对局，放弃并结算中")
             if auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9, max_retries=10):
                 self.loop()
@@ -277,18 +286,83 @@ class DivergentUniverse:
 
         if result := auto.find_element("./assets/images/screen/divergent_universe/show.png", "image", 0.9, crop=(383 / 1920, 57 / 1080, 71 / 1920, 48 / 1080)):
             auto.press_key_down("alt")
-            time.sleep(1)
-            auto.click_element_with_pos(result)
-            time.sleep(1)
-            auto.press_key_up("alt")
+            try:
+                time.sleep(1)
+                auto.click_element_with_pos(result)
+                time.sleep(1)
+            finally:
+                auto.press_key_up("alt")
             time.sleep(2)
 
-        stage_crop = (57 / 1920, 15 / 1080, 260 / 1920, 27 / 1080)
-        stage_text = auto.get_single_line_text(crop=stage_crop)
-        if not stage_text:
-            return
+        if du.game_language(cfg) == "ko_KR":
+            stage = du.read_korean_stage(auto)
+            if not stage:
+                return
+            current, total = str(stage.current), str(stage.total)
+            plane = "一二三"[stage.plane - 1]
+            station_id = stage.station
+            station = du.STATION_BY_ID[station_id]
+        else:
+            stage = self._read_zh_stage()
+            if not stage:
+                return
+            current, total, plane, station = stage
+            station_id = du.legacy_station_id(station)
 
-        stage_pattern = r"[（(]\s*(\d+)\s*/\s*(13|17|20)\s*[)）]\s*第\s*([一二三])\s*位面(?:\s*[-—－]\s*(.+))?"
+        route = du.stage_route(station_id)
+        new_stage = f"{current}/{total}|第{plane}位面|{station}"
+        if new_stage != self.current_stage:
+            self.stage_finish = False
+            self.current_stage = new_stage
+            log.hr(f"当前阶段 {current}/{total}，第{plane}位面，区域：{station}", 2)
+            if route == "battle":
+                self.process_battle_stage()
+            elif route == "walk":
+                auto.press_mouse()
+                time.sleep(2)
+                for _ in range(100):
+                    if self.check_click_close() or self.check_title():
+                        time.sleep(2)
+                    else:
+                        break
+                auto.press_key("w", 2)
+                self.process_battle_stage_finish()
+            elif route == "event":
+                self.process_event_stage()
+            else:
+                log.info("检测到暂不支持的区域类型")
+                self.unsupported_area = True
+                if station_id == "adventure":
+                    time.sleep(5)
+                    if self.check_click_close():
+                        log.info("检测到冒险区域且存在教学弹窗，尝试关闭")
+                        time.sleep(2)
+                        for _ in range(10):
+                            if not auto.click_element("关闭", "text", crop=(926 / 1920, 869 / 1080, 65 / 1920, 38 / 1080)):
+                                auto.click_element((1811 / 1920, 461 / 1080, 70 / 1920, 94 / 1080), "crop")
+                                time.sleep(2)
+                            else:
+                                time.sleep(2)
+                                break
+                        else:
+                            if not auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
+                                log.error("多次尝试关闭冒险教学弹窗失败")
+                                raise RuntimeError("多次尝试关闭冒险教学弹窗失败")
+                self.process_leave()
+
+        elif self.stage_finish:
+            # 选中特定 “惊世奇迹” 例如 “财猫面具·破” 以后，存在 bug，虽然不计算区域进度，但是左上角的区域类型不会变化
+            # 此时只需要暂离，重新进入，左上角就会显示正确的区域类型
+            # 火箭喷射信标也有类似效果
+            log.info("发现阶段完成但区域未变化，可能存在区域类型显示错误")
+            self.process_re_enter()
+            # 避免区域相同 反复重进
+            self.current_stage = ""  # 重置当前关卡阶段
+
+        elif self.process_stage and route in ("battle", "event"):
+            self.process_battle_stage_finish()
+
+    def _read_zh_stage(self):
         keywords = ["战斗", "精英", "事件", "异常", "奖励", "财富", "冒险", "商店", "铸造", "空白", "首领", "休整", "转化"]
 
         def normalize_station(raw_station):
@@ -307,24 +381,10 @@ class DivergentUniverse:
                 return None
             return stage_info_match.groups()
 
-        # 示例："（1/13）第一位面-战斗"
-        stage_match = re.search(
-            # r"[（(]\s*(\d+)\s*/\s*(13)\s*[)）]\s*第\s*([^位\s]+)\s*位面(?:\s*[-—－]\s*(.+))?",
-            stage_pattern,
-            stage_text
-        )
+        stage_match = du.zh_stage(auto.get_single_line_text(crop=du.STAGE_AREA))
         if stage_match:
-            current, total, plane, station = stage_match.groups()
-
-            # 修复 OCR 识别错误问题，“第二位面” 在特定场景下小概率会识别成 “第三位面”
-            if total == "13":
-                if current in ["1", "2", "3", "4"]:
-                    plane = "一"
-                elif current in ["5", "6", "7", "8", "9"]:
-                    plane = "二"
-                elif current in ["10", "11", "12", "13"]:
-                    plane = "三"
-
+            current, total, plane_index, station = stage_match
+            plane = "一二三"[plane_index - 1]
             station = normalize_station(station)
 
             if station == "未知":
@@ -338,76 +398,22 @@ class DivergentUniverse:
                 if station == "未知":
                     for retry in range(3):
                         time.sleep(1)
-                        retry_stage_text = auto.get_single_line_text(crop=stage_crop)
+                        retry_stage_text = auto.get_single_line_text(crop=du.STAGE_AREA)
                         if not retry_stage_text:
                             continue
 
-                        retry_stage_match = re.search(stage_pattern, retry_stage_text)
+                        retry_stage_match = du.zh_stage(retry_stage_text)
                         if not retry_stage_match:
                             continue
 
-                        _, _, _, retry_station = retry_stage_match.groups()
+                        _, _, _, retry_station = retry_stage_match
                         retry_station = normalize_station(retry_station)
                         if retry_station != "未知":
                             station = retry_station
                             log.debug(f"区域识别重试成功（第 {retry + 1} 次）：{station}")
                             break
 
-            new_stage = f"{current}/{total}|第{plane}位面|{station}"
-            if new_stage != self.current_stage:
-                self.stage_finish = False
-                self.current_stage = new_stage
-                log.hr(f"当前阶段 {current}/{total}，第{plane}位面，区域：{station}", 2)
-                if "首领" in station or "战斗" in station or "精英" in station or "转化" in station:
-                    self.process_battle_stage()
-                elif "空白" in station or "休整" in station or "商店" in station or "财富" in station:
-                    auto.press_mouse()
-                    time.sleep(2)
-                    for _ in range(100):
-                        if self.check_click_close() or self.check_title():
-                            time.sleep(2)
-                        else:
-                            break
-                    auto.press_key("w", 2)
-                    self.process_battle_stage_finish()
-                elif "事件" in station or "异常" in station or "奖励" in station or "铸造" in station:
-                    self.process_event_stage()
-                else:
-                    log.info("检测到暂不支持的区域类型")
-                    self.unsupported_area = True
-                    if "冒险" in station:
-                        time.sleep(5)
-                        if self.check_click_close():
-                            log.info("检测到冒险区域且存在教学弹窗，尝试关闭")
-                            time.sleep(2)
-                            for _ in range(10):
-                                if not auto.click_element("关闭", "text", crop=(926 / 1920, 869 / 1080, 65 / 1920, 38 / 1080)):
-                                    auto.click_element((1811 / 1920, 461 / 1080, 70 / 1920, 94 / 1080), "crop")
-                                    time.sleep(2)
-                                else:
-                                    time.sleep(2)
-                                    break
-                            else:
-                                if not auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
-                                    log.error("多次尝试关闭冒险教学弹窗失败")
-                                    raise RuntimeError("多次尝试关闭冒险教学弹窗失败")
-                    self.process_leave()
-
-            elif self.stage_finish:
-                # 选中特定 “惊世奇迹” 例如 “财猫面具·破” 以后，存在 bug，虽然不计算区域进度，但是左上角的区域类型不会变化
-                # 此时只需要暂离，重新进入，左上角就会显示正确的区域类型
-                # 火箭喷射信标也有类似效果
-                log.info("发现阶段完成但区域未变化，可能存在区域类型显示错误")
-                self.process_re_enter()
-                # 避免区域相同 反复重进
-                self.current_stage = ""  # 重置当前关卡阶段
-
-            elif self.process_stage:
-                if "首领" in station or "战斗" in station or "精英" in station or "转化" in station:
-                    self.process_battle_stage_finish()
-                if "事件" in station or "异常" in station or "奖励" in station or "铸造" in station:
-                    self.process_battle_stage_finish()
-            return
+            return current, total, plane, station
 
     def detect_events(self):
         """使用YOLO检测所有事件目标。"""
@@ -880,7 +886,7 @@ class DivergentUniverse:
     def process_leave(self):
         log.info("尝试离开当前关卡")
         auto.press_key("esc")
-        if auto.click_element("结束并结算", "text", max_retries=10, crop=(1238 / 1920, 859 / 1080, 562 / 1920, 165 / 1080)):
+        if du.click_text(auto, cfg, "end_run", "end_run", max_retries=10):
             auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9, max_retries=10)
         else:
             self.stage_finish = True
@@ -892,11 +898,14 @@ class DivergentUniverse:
             return False
         previous_progress = tuple(map(int, previous.groups()))
         last_progress = None
+        korean = du.game_language(cfg) == "ko_KR"
         for attempt in range(3):
-            stage_text = auto.get_single_line_text(crop=(57 / 1920, 15 / 1080, 260 / 1920, 27 / 1080))
-            match = re.search(r"[（(]\s*(\d+)\s*/\s*(13|17|20)\s*[)）]", stage_text or "")
-            progress = tuple(map(int, match.groups())) if match else None
-            if progress and 1 <= progress[0] <= progress[1]:
+            if korean:
+                stage = du.read_korean_stage(auto)
+                progress = stage.progress if stage else None
+            else:
+                progress = du.zh_progress(auto.get_single_line_text(crop=du.STAGE_AREA))
+            if progress:
                 if progress == previous_progress:
                     return False
                 # 连续两次读到同一新编号才退出旧流程，避免单帧 OCR 误识别。
@@ -922,7 +931,7 @@ class DivergentUniverse:
                     auto.press_key(interact_key)
                     screen.wait_for_screen_change('divergent_main')
                 screen.change_to("divergent_mode_select")
-                if auto.click_element("继续进度", "text", crop=(39 / 1920, 215 / 1080, 748 / 1920, 597 / 1080)):
+                if du.click_text(auto, cfg, "continue_run", "continue"):
                     if not self.wait_stage_after_continue():
                         raise RuntimeError("重新进入关卡失败")
                     return self.has_stage_changed()
@@ -1102,42 +1111,35 @@ class DivergentUniverse:
         return False
 
     def check_title(self):
-        """
-        检查当前界面标题，并根据不同标题执行对应的处理函数
-        """
-        title_crop = (96 / 1920, 63 / 1080, 142 / 1920, 34 / 1080)
-        if auto.find_element(("欢愉假面", "选择方程", "选择祝福", "选择奇物", "丢弃奇物", "奇物损毁", "愿力满盈", "选择下一站", "事件", "选择站点卡", "存档管理", "混沌药箱", "人才管理阶段"), 'text', crop=title_crop, include=True):
-            log.info(f"检测到 “{auto.matched_text}” 界面")
-            if auto.matched_text == "欢愉假面":
-                self.process_mask()
-            elif auto.matched_text == "选择方程":
-                self.process_equation()
-            elif auto.matched_text == "选择祝福":
-                self.process_blessing()
-            elif auto.matched_text == "选择奇物":
-                self.process_relic_selection()
-            elif auto.matched_text == "丢弃奇物":
-                self.process_relic_discard()
-            elif auto.matched_text == "奇物损毁":
-                self.process_relic_destroy()
-            elif auto.matched_text == "愿力满盈":
-                self.process_wish()
-            elif auto.matched_text == "选择下一站":
-                self.stage_finish = True
-                self.process_next_station()
-            elif auto.matched_text == "事件":
-                self.process_event()
-            elif auto.matched_text == "选择站点卡":
-                self.stage_finish = True
-                self.process_station_card()
-            elif auto.matched_text == "存档管理":
-                self.process_save_management()
-            elif auto.matched_text == "混沌药箱":
-                self.process_chaos_box()
-            elif auto.matched_text == "人才管理阶段":
-                self.process_talent_management()
-            return True
-        return False
+        found = du.find_text(auto, cfg, "title")
+        if not found:
+            return False
+
+        title, _ = found
+        log.info(f"检测到差分宇宙界面：{title}")
+        handlers = {
+            "mask": self.process_mask,
+            "equation": self.process_equation,
+            "blessing": self.process_blessing,
+            "curio": self.process_relic_selection,
+            "discard_curio": self.process_relic_discard,
+            "destroy_curio": self.process_relic_destroy,
+            "wish": self.process_wish,
+            "next_station": self.process_next_station,
+            "event": self.process_event,
+            "station_card": self.process_station_card,
+            "save": self.process_save_management,
+            "chaos_box": self.process_chaos_box,
+            "talent": self.process_talent_management,
+        }
+        korean = du.game_language(cfg) == "ko_KR"
+        advances_stage = title in ("next_station", "station_card")
+        if advances_stage and not korean:
+            self.stage_finish = True
+        handled = handlers[title]()
+        if advances_stage and korean and handled:
+            self.stage_finish = True
+        return True
 
     def process_mask(self):
         """
@@ -1149,8 +1151,9 @@ class DivergentUniverse:
             (413 / 1920, 900 / 1080, 142 / 1920, 51 / 1080),
         ]
         mask_names = []
-        if auto.click_element(("选择一张面具", "确定"), 'text'):
-            if auto.matched_text == "选择一张面具":
+        found = du.find_text(auto, cfg, "mask_action")
+        if found and auto.click_element_with_pos(found[1]):
+            if found[0] == "choose_mask":
                 if auto.find_element("面具", "text", crop=mask_crop, include=True):
                     for box in auto.ocr_result:
                         text = box[1][0]
@@ -1242,7 +1245,7 @@ class DivergentUniverse:
             has_choose = True
 
         time.sleep(1)
-        auto.click_element('确认', 'text', None, 10, crop=(1657 / 1920, 948 / 1080, 99 / 1920, 49 / 1080), include=True)
+        du.click_text(auto, cfg, "equation_confirm", "confirm", max_retries=10)
         time.sleep(2)
 
     def process_blessing(self):
@@ -1293,7 +1296,7 @@ class DivergentUniverse:
             has_choose = True
 
         time.sleep(1)
-        auto.click_element('确认', 'text', None, 10, crop=(1644 / 1920, 934 / 1080, 88 / 1920, 48 / 1080), include=True)
+        du.click_text(auto, cfg, "blessing_confirm", "confirm", max_retries=10)
         time.sleep(2)
 
     def process_relic_selection(self):
@@ -1326,7 +1329,7 @@ class DivergentUniverse:
             has_choose = True
 
         time.sleep(1)
-        auto.click_element('确认', 'text', None, 10, crop=(1660 / 1920, 948 / 1080, 93 / 1920, 49 / 1080), include=True)
+        du.click_text(auto, cfg, "curio_confirm", "confirm", max_retries=10)
         time.sleep(2)
 
     def process_relic_discard(self):
@@ -1347,7 +1350,7 @@ class DivergentUniverse:
         auto.click_element(relic2_positions[0], 'crop')
         auto.click_element(relic_positions[1], 'crop')
         time.sleep(1)
-        auto.click_element('丢弃', 'text', None, 10, crop=(1695 / 1920, 948 / 1080, 69 / 1920, 50 / 1080), include=True)
+        du.click_text(auto, cfg, "discard_confirm", "discard", max_retries=10)
         time.sleep(2)
 
     def process_relic_destroy(self):
@@ -1423,18 +1426,7 @@ class DivergentUniverse:
         time.sleep(2)
 
     def process_next_station(self):
-        # 战斗/精英/事件/异常/奖励/财富/冒险/商店/铸造/空白 奇遇（宝箱/祝福/奇物合成/铸造/惊喜升级） 首领/休整/转化
-        station_positions = [
-            (570 / 1920, 433 / 1080, 252 / 1920, 403 / 1080),
-            (835 / 1920, 432 / 1080, 251 / 1920, 405 / 1080),
-            (1097 / 1920, 432 / 1080, 252 / 1920, 405 / 1080),
-        ]
-        station2_positions = [
-            (439 / 1920, 432 / 1080, 252 / 1920, 407 / 1080),
-            (702 / 1920, 433 / 1080, 253 / 1920, 406 / 1080),
-            (965 / 1920, 431 / 1080, 251 / 1920, 404 / 1080),
-            (1227 / 1920, 432 / 1080, 253 / 1920, 402 / 1080),
-        ]
+        korean = du.game_language(cfg) == "ko_KR"
         re_extract_crop = (560 / 1920, 940 / 1080, 374 / 1920, 56 / 1080)
 
         for _ in range(5):
@@ -1442,44 +1434,33 @@ class DivergentUniverse:
             has_priority_station = False
 
             station_tags = []
-            for pos in station_positions:
-                if auto.find_element(("战斗", "精英", "事件", "异常", "奖励", "财富", "冒险", "商店", "铸造", "空白", "奇遇", "首领", "休整", "转化"), 'text', crop=pos, include=True):
-                    station_tags.append(auto.matched_text)
-                else:
-                    station_tags.append(None)
+            for index in range(1, len(du.STATION_AREAS) + 1):
+                found = du.find_text(auto, cfg, f"station_{index}")
+                station_tags.append(found[0] if found else None)
 
             log.debug(f"站点卡标签: {station_tags}")
 
             if not any(station_tags):
                 return
 
-            # 根据优先级选择点击哪个站点，若优先级相同，点击中间的站点
-            priority_map = {
-                "首领": 0,
-                "休整": 0,
-                "转化": 0,
-            }
+            # 优先级相同时沿用从左到右的选择顺序。
+            priority_map = {"boss": 0, "rest": 0, "conversion": 0}
             disabled_stations = set()
 
             if cfg.divergent_station_priority_enable:
                 custom_priority = cfg.divergent_station_priority
-                for name, prio in custom_priority.items():
-                    priority_map[name] = prio
-                disabled_stations = set(cfg.divergent_station_disabled)
+                for station_id, name in du.STATION_BY_ID.items():
+                    if name in custom_priority:
+                        priority_map[station_id] = custom_priority[name]
+                    if name in cfg.divergent_station_disabled:
+                        disabled_stations.add(station_id)
             else:
                 priority_map.update({
-                    "战斗": 1,
-                    "精英": 1,
-                    "事件": 2,
-                    "奖励": 2,
-                    "异常": 2,
-                    "铸造": 2,
-                    "空白": 3,
-                    "商店": 3,
-                    "财富": 3,
+                    "battle": 1, "elite": 1, "event": 2, "reward": 2,
+                    "abnormal": 2, "forge": 2, "blank": 3, "shop": 3, "wealth": 3,
                 })
 
-            # 获取每个站点的优先级，None 的优先级设为最低（优先级最高）
+            # 未识别的站点不参与选择。
             # 禁用的站点优先级设为极高值（仅在没有重抽次数时才会被选择）
             station_priorities = []
             for tag in station_tags:
@@ -1492,7 +1473,7 @@ class DivergentUniverse:
                         has_priority_station = True
                     station_priorities.append(priority_map.get(tag, 100))
 
-            if not has_priority_station:
+            if not has_priority_station and not korean:
                 if not auto.find_element("重抽0", "text", crop=re_extract_crop) and not auto.find_element("0", "text", crop=re_extract_crop):
                     auto.click_element(re_extract_crop, 'crop')
                     time.sleep(0.5)
@@ -1503,30 +1484,23 @@ class DivergentUniverse:
                     continue
             break
 
-        # 找到最高优先级（最小的优先级值）
-        min_priority = min(station_priorities)
-
-        # 找到所有具有最高优先级的站点索引
-        best_indices = [i for i, p in enumerate(station_priorities) if p == min_priority]
-
-        # 如果有多个最优选择，选择第一个
-        if len(best_indices) > 1:
-            # selected_index = best_indices[len(best_indices) // 2]
-            selected_index = best_indices[0]
-        else:
-            selected_index = best_indices[0]
-
-        # auto.click_element(station_positions[selected_index], 'crop')
-        auto.click_element(f"{station_tags[selected_index]}", 'text', None, 10, crop=station_positions[selected_index], include=True)
-        log.info(f"选择 “{station_tags[selected_index]}” 站点卡")
+        selected_index = station_priorities.index(min(station_priorities))
+        station = station_tags[selected_index]
+        selected = du.click_text(auto, cfg, f"station_{selected_index + 1}", station, max_retries=10)
+        if korean and not selected:
+            return False
+        log.info(f"选择 “{du.STATION_BY_ID[station]}” 站点卡")
 
         time.sleep(1)
-        auto.click_element('确定', 'text', None, 10, crop=(561 / 1920, 937 / 1080, 794 / 1920, 60 / 1080), include=True)
+        confirmed = du.click_text(auto, cfg, "station_confirm", "confirm", max_retries=10)
+        if korean and not confirmed:
+            return False
         time.sleep(2)
 
         # 4.5 版本新更新的 “贪吃面具” 会在此处弹窗 “本次为最后一次区域选择阶段，之后将无法再进入储蓄间，是否继续？”
         if auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9):
             time.sleep(2)
+        return confirmed
 
     @staticmethod
     def reveal_event_confirm():
@@ -1780,9 +1754,10 @@ class DivergentUniverse:
         """
         检查并点击 “终止战斗并结算” 和 “返回主界面” 的按钮
         """
-        if result := auto.find_element(("终止战斗并结算", "返回主界面", "确认结算"), 'text', None, crop=(573 / 1920, 947 / 1080, 792 / 1920, 85 / 1080), include=True):
-
-            if auto.matched_text == "终止战斗并结算":
+        found = du.find_text(auto, cfg, "settlement_action")
+        if found:
+            action, result = found
+            if action == "abort_battle":
                 log.info(f"检测到 “终止战斗并结算” 的按钮，尝试点击")
                 auto.click_element_with_pos(result)
                 time.sleep(2)
@@ -1790,24 +1765,23 @@ class DivergentUniverse:
                     auto.press_key("esc")
                 return True
 
-            elif auto.matched_text == "返回主界面":
+            elif action == "return_main":
                 log.info(f"检测到 “返回主界面” 的按钮，尝试点击")
                 self._check_battle_result()
                 if self.result is True and cfg.get_value("divergent_auto_save_enable", True) and not self._save_attempted:
                     self._save_attempted = True
                     self._save_completed_run()
-                    result = auto.find_element(
-                        "返回主界面",
-                        "text",
-                        max_retries=3,
-                        crop=(573 / 1920, 947 / 1080, 792 / 1920, 85 / 1080),
-                        include=True,
-                    )
-                    if not result:
+                    found = du.find_text(auto, cfg, "settlement_action", only="return_main", max_retries=3)
+                    if not found:
                         log.warning("存档流程后未找到“返回主界面”，等待下一轮界面识别")
                         return True
+                    result = found[1]
                 time.sleep(2)
-                auto.click_element_with_pos(result)
+                if du.game_language(cfg) == "ko_KR":
+                    if not du.click_text(auto, cfg, "settlement_action", "return_main"):
+                        return False
+                else:
+                    auto.click_element_with_pos(result)
                 if self.result is not None:
                     log.info(f"本次对局结果：{'成功' if self.result else '失败'}")
                 else:
@@ -1816,7 +1790,7 @@ class DivergentUniverse:
 
                 time.sleep(2)
                 for _ in range(30):
-                    if auto.click_element("返回主界面", 'text', None, crop=(573 / 1920, 947 / 1080, 792 / 1920, 85 / 1080), include=True):
+                    if du.click_text(auto, cfg, "settlement_action", "return_main"):
                         log.info(f"检测到 “返回主界面” 的按钮，尝试点击")
                         time.sleep(2)
                     else:
@@ -1827,7 +1801,7 @@ class DivergentUniverse:
                 # 没有存档会显示一个弹窗，需要点击确认
                 auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9)
 
-            elif auto.matched_text == "确认结算":
+            elif action == "confirm_settlement":
                 log.info(f"检测到 “确认结算” 的按钮，尝试点击")
                 auto.click_element_with_pos(result)
                 return True
@@ -1839,12 +1813,10 @@ class DivergentUniverse:
         检查并记录对局结果
         """
         time.sleep(2)  # 等待分析报告加载完成后再截图
-        if auto.find_element(("探索成功", "探索中断"), 'text', include=True):
-            if auto.matched_text == "探索成功":
-                self.result = True
-                self.screenshot = auto.screenshot
-                return
-            elif auto.matched_text == "探索中断":
-                self.result = False
-                self.screenshot = auto.screenshot
-                return
+        found = du.find_text(auto, cfg, "settlement_result")
+        if found:
+            self.result = found[0] == "success"
+            self.screenshot = auto.screenshot
+        elif du.game_language(cfg) == "ko_KR":
+            self.result = None
+            self.screenshot = None

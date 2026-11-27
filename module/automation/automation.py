@@ -1020,6 +1020,12 @@ class Automation(metaclass=SingletonMeta):
         return tuple((offset_x + min(int(x * width), width - 1), offset_y + min(int(y * height), height - 1))
                      for x, y in points)
 
+    def click_divergent_text(self, group, action):
+        """Resolve a Divergent Universe action in the PC navigation graph."""
+        from tools.localization.du_recognition import click_text
+
+        return click_text(self, cfg, group, action, max_retries=10)
+
     def click_element(self, target, find_type, threshold=None, max_retries=1, crop=(0, 0, 1, 1), take_screenshot=True, relative=False, scale_range=None, include=None, need_ocr=True, source=None, source_type=None, pixel_bgr=None, position="bottom_right", offset=(0, 0), action="click", retry_delay: float = 1.0, use_background_screenshot=None, press_duration: float = 0.0, prefer_frame_screenshot=True):
         """
         查找并点击屏幕上的元素。

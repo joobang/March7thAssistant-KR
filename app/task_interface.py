@@ -3,7 +3,7 @@
 卡片由 app.content 按任务建造，状态和操作来自 app.content.task_model.TaskModel。
 """
 from PySide6.QtCore import QPoint, Qt, QTimer
-from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, ExpandSettingCard, ScrollArea, TitleLabel, qconfig
 
 from app.content import PageHost, build_page
@@ -27,7 +27,7 @@ class TaskPage(ScrollArea):
         window, model = interface.window_, interface.model
         self.setWidgetResizable(True)
         self.enableTransparentBackground()
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.view = QWidget()
         self.view.setObjectName("view")
         self.setWidget(self.view)
@@ -66,6 +66,14 @@ class TaskPage(ScrollArea):
         self.refreshSections()
         self.refresh()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # A wide settings card can enlarge the scroll contents. Keep the run
+        # controls within the visible width independently of those cards.
+        margins = self.vBoxLayout.contentsMargins()
+        width = self.viewport().width() - margins.left() - margins.right()
+        self.header.setMaximumWidth(max(0, width))
+
     def refreshSections(self):
         for view in self.views.values():
             view.refresh()
@@ -94,6 +102,10 @@ class TaskPage(ScrollArea):
 
 
 class TaskInterface(QWidget):
+    NARROW_BODY_WIDTH = 960
+    TASK_LIST_WIDTH = 256
+    COMPACT_LIST_HEIGHT = 184
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("taskInterface")
@@ -101,6 +113,7 @@ class TaskInterface(QWidget):
         self.model = shared(parent, "taskModel", lambda: TaskModel(parent))
         self.titleLabel = TitleLabel(tr("任务"), self)
         self.subtitleLabel = secondary(BodyLabel(tr("打开开关的任务会加入「完整运行」，每项也可以单独立即运行"), self))
+        self.subtitleLabel.setWordWrap(True)
         self.accountModel = shared(parent, "accountModel", lambda: AccountModel(parent))
         self.editing = EditingAccount(self.accountModel, parent, self)
         title = QHBoxLayout()
@@ -142,13 +155,30 @@ class TaskInterface(QWidget):
                 old.hide()
                 old.deleteLater()
         self.listPanel, self.stack, self.pages = panel, stack, pages
-        panel.setFixedWidth(256)
         panel.currentChanged.connect(self.showTask)
         self.body.addWidget(self.listPanel)
         self.body.addWidget(self.stack, 1)
+        self._fitTaskList()
         first = next(iter(self.pages), None)
         if first:
             self.showTask(first)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.listPanel is not None:
+            self._fitTaskList()
+
+    def _fitTaskList(self):
+        narrow = self.contentsRect().width() < self.NARROW_BODY_WIDTH
+        direction = QBoxLayout.Direction.TopToBottom if narrow else QBoxLayout.Direction.LeftToRight
+        if narrow:
+            self.listPanel.setMinimumWidth(0)
+            self.listPanel.setMaximumWidth(16777215)
+            self.listPanel.setMaximumHeight(self.COMPACT_LIST_HEIGHT)
+        else:
+            self.listPanel.setFixedWidth(self.TASK_LIST_WIDTH)
+            self.listPanel.setMaximumHeight(16777215)
+        self.body.setDirection(direction)
 
     def rebuild(self, *, account_changed=False):
         """切换语言后重建列表和各任务页，保留所选任务、滚动位置和展开状态。"""
